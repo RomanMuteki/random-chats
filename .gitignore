@@ -1,2 +1,4 @@
-./Auth service/.idea
-./Auth service/q.py
+Auth service/.idea
+Auth service/q.py
+messenger_app/CMakeLists.txt.user
+messenger_app/build
