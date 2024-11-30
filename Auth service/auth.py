@@ -24,6 +24,7 @@ async def get_db_connection():
 
 class RegistrationRequest(BaseModel):
     email: str
+    username: str
     password: str
     sex: str
     age: int
@@ -38,6 +39,11 @@ class LoginRequest(BaseModel):
 
 class TokenAuthentification(BaseModel):
     token: str
+
+
+class ServiceCheckToken(BaseModel):
+    token: str
+    uid: str
 
 
 class InvalidTokenValue(Exception):
@@ -84,10 +90,10 @@ async def registration(request: RegistrationRequest, db=Depends(get_db_connectio
     uid = await uid_generator(db)
 
     insert_query = """
-            INSERT INTO users (email, password, sex, age, preffered_age, interests, uid, access_token, refresh_token)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            INSERT INTO users (email, username, password, sex, age, preffered_age, interests, uid, access_token, refresh_token)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         """
-    await db.execute(insert_query, request.email, hashed_password, request.sex, request.age,
+    await db.execute(insert_query, request.email, request.username, hashed_password, request.sex, request.age,
                      request.preferred_age, request.interests, uid, None, None)
 
     return {"status": "success", "message": "User registrated successfully"}
@@ -140,11 +146,35 @@ async def authentification(request: TokenAuthentification, db=Depends(get_db_con
             await db.execute(query, new_access_token, uid)
             return {"status": "success", "message": "New token is sent", "access token": new_access_token}
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=400, detail="Token is expired")
+        raise HTTPException(status_code=400, detail="Token is expired. Relogin is required")
     except jwt.InvalidIssuerError:
         raise HTTPException(status_code=400, detail="Invalid issuer. Relogin is required")
     except InvalidTokenValue:
         raise HTTPException(status_code=400, detail="Invalid token. Relogin is required")
+
+
+@app.get("/token_check")
+async def TokenValidityCheck(request: ServiceCheckToken, db=Depends(get_db_connection)):
+    try:
+        dec_token = jwt.decode(request.token, PRIVATE_JWT_KEY,
+                               algorithms='HS256', options={'verify_iss': True}, issuer='Random_chats auth service')
+
+        query = "SELECT * FROM users WHERE uid = $1"
+        user = await db.fetchrow(query, request.uid)
+        if user is None:
+            raise HTTPException(status_code=400, detail="User not found")
+
+        if request.token != user['access_token'] and request.token != user['refresh_token']:
+            raise InvalidTokenValue('Invalid token')
+
+        return {"status": "success", "message": "Token is up to date, user submitted"}
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=400, detail="Token is expired")
+    except jwt.InvalidIssuerError:
+        raise HTTPException(status_code=400, detail="Invalid issuer")
+    except InvalidTokenValue:
+        raise HTTPException(status_code=400, detail="Invalid token. Relogin is required")
+
 
 
 if __name__ == '__main__':
