@@ -14,6 +14,9 @@ class MainChatWindow : public QWidget {
 public:
     explicit MainChatWindow(QWidget *parent = nullptr);
 
+signals:
+    void chatSelected(const QString &chatName);
+
 private:
     QLineEdit *searchBar;
     QListWidget *chatList;
