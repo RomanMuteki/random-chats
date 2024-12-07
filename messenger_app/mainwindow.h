@@ -5,6 +5,7 @@
 #include "loginform.h"
 #include "registerform.h"
 #include "mainchatwindow.h"
+#include "chatwindow.h"
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -17,11 +18,13 @@ private slots:
     void showRegisterForm();
     void showLoginForm();
     void showMainChatWindow();
+    void showChatWindow(const QString &chatName);
 
 private:
     LoginForm *loginForm;
     RegisterForm *registerForm;
     MainChatWindow *mainChatWindow;
+    ChatWindow *chatWindow;
 };
 
 #endif // MAINWINDOW_H

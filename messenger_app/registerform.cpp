@@ -1,5 +1,4 @@
 #include "registerform.h"
-#include "registerform.h"
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QHBoxLayout>
@@ -7,9 +6,21 @@
 #include <QLineEdit>
 #include <QComboBox>
 #include <QMessageBox>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QUrl>
+#include <QJsonDocument>
+#include <QJsonObject>
 
 RegisterForm::RegisterForm(QWidget *parent) : QWidget(parent) {
     QVBoxLayout *layout = new QVBoxLayout(this);
+
+    //setFixedSize(800, 600);
+    QPalette palette;
+    palette.setColor(QPalette::Window, QColor("#E0F0F6"));
+    setPalette(palette);
+    setAutoFillBackground(true);
 
     QLabel *titleLabel = new QLabel("Регистрация", this);
     titleLabel->setAlignment(Qt::AlignCenter);
@@ -103,8 +114,64 @@ RegisterForm::RegisterForm(QWidget *parent) : QWidget(parent) {
 
     connect(loginButton, &QPushButton::clicked, this, &RegisterForm::loginClicked);
     connect(registerButton, &QPushButton::clicked, this, &RegisterForm::onRegisterClicked);
+
+    setLayout(layout);
 }
 
 void RegisterForm::onRegisterClicked() {
-    QMessageBox::information(this, "Успешная регистрация", "Вы успешно зарегистрировались!");
+    QString email = emailInput -> text();
+    QString username = usernameInput -> text();
+    QString password = passwordInput -> text();
+    QString confirmPassword = confirmPasswordInput -> text();
+    if (password != confirmPassword) {
+        QMessageBox::warning(this, "Ошибка регистрации", "Пароли не совпадают.");
+        return;
+    }
+    QString age = ageInput -> text();
+    QString gender;
+    if (maleRadio->isChecked()) {
+        gender = "Мужской";
+    } else if (femaleRadio->isChecked()) {
+        gender = "Женский";
+    }
+    QString genderPreference = genderPrefCombo->currentText();
+    QString agePreference = agePrefCombo->currentText();
+
+    bool ok;
+    int ages = age.toInt(&ok);
+    if (!ok) {
+        QMessageBox::warning(this, "Ошибка регистрации", "Возраст должен быть числом.");
+        return;
+    }
+
+    QNetworkAccessManager *manager = new QNetworkAccessManager(this);
+    QUrl url(server_url);
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    QJsonObject jsonData;
+    jsonData["email"] = email;
+    jsonData["username"] = username;
+    jsonData["password"] = password;
+    jsonData["age"] = ages;
+    jsonData["sex"] = gender;
+    jsonData["preferred_sex"] = genderPreference;
+    jsonData["preferred_age"] = agePreference;
+
+    //QMessageBox::information(this, "Успешная регистрация", "Вы успешно зарегистрировались!");
+
+    QJsonDocument doc(jsonData);
+    QByteArray postData = doc.toJson();
+
+    QNetworkReply *reply = manager->post(request, postData);
+    connect(reply, &QNetworkReply::finished, [=]() {
+        if (reply->error() == QNetworkReply::NoError) {
+            QByteArray responseData = reply->readAll();
+            QMessageBox::information(this, "Успешная регистрация", "Данные успешно отправлены на сервер.");
+        } else {
+            QMessageBox::warning(this, "Ошибка регистрации", "Ошибка при отправке данных на сервер: " + reply->errorString());
+        }
+        reply->deleteLater();
+    });
 }
+
+
