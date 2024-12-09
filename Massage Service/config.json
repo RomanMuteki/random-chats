@@ -1,0 +1,6 @@
+{
+    "mongodb_url": "mongodb://localhost:27017",
+    "database_name": "random_chats_db",
+    "service_name": "Message Service",
+    "log_level": "INFO"
+}
