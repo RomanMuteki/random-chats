@@ -1,0 +1,6 @@
+{
+    "websocket_manager_url": "http://localhost:8000",
+    "message_service_url": "http://localhost:8200",
+    "handler_id": "WSH1",
+    "handler_url": "http://localhost:8001"
+}
