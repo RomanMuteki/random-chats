@@ -178,7 +178,7 @@ async def TokenValidityCheck(request: ServiceCheckToken, db=Depends(get_db_conne
     except jwt.InvalidIssuerError:
         raise HTTPException(status_code=400, detail="Invalid issuer")
     except InvalidTokenValue:
-        raise HTTPException(status_code=400, detail="Invalid token. Relogin is required")
+        raise HTTPException(status_code=400, detail="Invalid token")
 
 
 @app.get("/matching_info")
@@ -190,7 +190,7 @@ async def GetInfoByUrl(request: MatchingGetInfo, db=Depends(get_db_connection)):
             raise HTTPException(status_code=400, detail="User not found")
         else:
             return {"sex": user['sex'], "age": user['age'],
-                    "preferred_age": user['preferred_age'], "preferred_sex": user['preferred_sex']}
+                    "preferred_age": user['preffered_age'], "preferred_sex": user['preffered_sex']}
     except Exception as E:
         raise HTTPException(status_code=500, detail=E)
 
