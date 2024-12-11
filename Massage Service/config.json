@@ -2,5 +2,7 @@
     "mongodb_url": "mongodb://localhost:27017",
     "database_name": "random_chats_db",
     "service_name": "Message Service",
-    "log_level": "INFO"
+    "log_level": "INFO",
+    "api_gateway_url": "http://localhost:8500",
+    "max_attempts": 5
 }

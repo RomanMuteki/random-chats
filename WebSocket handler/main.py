@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse
 from cachetools import TTLCache
 import httpx
 from datetime import datetime
-
+from urllib.parse import urljoin
 
 # Чтение конфигурации из файла config.json
 CONFIG_FILE = 'config.json'
@@ -19,15 +19,10 @@ if not os.path.exists(CONFIG_FILE):
 with open(CONFIG_FILE, 'r') as f:
     config = json.load(f)
 
-
-WEBSOCKET_MANAGER_URL = config.get('websocket_manager_url', 'http://localhost:8000')
-MESSAGE_SERVICE_URL = config.get('message_service_url', 'http://localhost:8200')
+API_GATEWAY_URL = config.get('api_gateway_url', 'http://localhost:8500')
+MAX_ATTEMPTS = config.get('max_attempts', 5)
 HANDLER_ID = config.get('handler_id', 'WSH1')  # Уникальный ID для каждого обработчика
-
-HANDLER_URLS = {
-    'WSH1': 'http://localhost:8001',
-    'WSH2': 'http://localhost:8002',
-}
+HANDLER_URL = config.get('handler_url', 'http://localhost:8001')
 
 app = FastAPI(title=f"WebSocket Handler {HANDLER_ID}")
 
@@ -36,14 +31,77 @@ app.state.HANDLER_ID = HANDLER_ID
 user_cache = TTLCache(maxsize=1000, ttl=60)  # Кэш для недавних сопоставлений пользователь-обработчик
 connected_users: Dict[str, WebSocket] = {}  # Подключенные пользователи к этому обработчику
 
+# Создаем глобальный HTTP клиент
 http_client = httpx.AsyncClient()
 
+# Словари для хранения текущих URL сервисов
+SERVICE_URLS = {
+    'websocket_manager': None,
+    'message_service': None,
+    'auth_service': None,
+}
+
+async def get_service_url(service_name: str) -> Optional[str]:
+    """
+    Получает URL экземпляра сервиса из API Gateway.
+
+    :param service_name: Название сервиса.
+    :return: URL сервиса или None.
+    """
+    params = {'service_name': service_name}
+    url = f"{API_GATEWAY_URL}/get_service_instance"
+    try:
+        response = await http_client.get(url, params=params)
+        if response.status_code == 200:
+            instance = response.json().get('instance')
+            return instance['url']
+        else:
+            logging.error(f"Не удалось получить экземпляр {service_name} из API Gateway: {response.text}")
+            return None
+    except Exception as e:
+        logging.error(f"Ошибка при получении экземпляра {service_name} из API Gateway: {e}")
+        return None
+
+async def request_with_retry(method: str, service_name: str, path: str, **kwargs) -> Optional[httpx.Response]:
+    """
+    Выполняет HTTP запрос к сервису с повторными попытками и обновлением URL из API Gateway.
+
+    :param method: HTTP метод ('GET', 'POST', 'PUT', 'DELETE').
+    :param service_name: Название сервиса.
+    :param path: Путь эндпоинта в сервисе.
+    :param kwargs: Дополнительные параметры для httpx.request.
+    :return: Ответ httpx.Response или None.
+    """
+    attempts = 0
+    while attempts < MAX_ATTEMPTS:
+        service_url = SERVICE_URLS.get(service_name)
+        if not service_url:
+            service_url = await get_service_url(service_name)
+            if not service_url:
+                attempts += 1
+                continue
+            SERVICE_URLS[service_name] = service_url
+        url = urljoin(service_url, path)
+        try:
+            response = await http_client.request(method, url, **kwargs)
+            if response.status_code == 200:
+                return response
+            else:
+                # Если получили ошибку, обновляем URL сервиса и повторяем запрос
+                logging.error(f"Ошибка при обращении к {service_name}: {response.status_code} {response.text}")
+                SERVICE_URLS[service_name] = None  # Сбросим URL, чтобы получить новый на следующей итерации
+                attempts += 1
+        except Exception as e:
+            logging.error(f"Исключение при обращении к {service_name} по адресу {url}: {e}")
+            SERVICE_URLS[service_name] = None
+            attempts += 1
+    logging.error(f"Не удалось связаться с {service_name} после {MAX_ATTEMPTS} попыток")
+    return None
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """ Закрытие HTTP клиента при завершении работы приложения. """
+    """Закрытие HTTP клиента при завершении работы приложения."""
     await http_client.aclose()
-
 
 @app.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
@@ -57,6 +115,18 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
     await websocket.accept()
     background_task = None
     try:
+        # Получение токена из параметров URL при WebSocket соединении
+        query_params = dict(websocket.headers)
+        token = query_params.get('token')
+        if not token:
+            await websocket.close(code=4001, reason="Требуется токен")
+            return
+        # Проверяем токен один раз при установлении соединения
+        is_valid = await check_token(user_id, token)
+        if not is_valid:
+            await websocket.close(code=4003, reason="Неверный или истекший токен")
+            return
+
         await register_user(user_id)
         connected_users[user_id] = websocket
         logging.info(f"Пользователь {user_id} подключен.")
@@ -73,8 +143,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
         while True:
             data = await websocket.receive_text()
             message = json.loads(data)
-            if message.get('type') != 'ping':
-                print(f"Получены данные от {user_id}: {data}")
             if message.get('type') == 'ping':
                 # Обработка сообщения типа 'ping' для поддержания соединения
                 await websocket.send_text(json.dumps({"type": "pong"}))
@@ -112,7 +180,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
         except Exception as e:
             logging.error(f"Ошибка при закрытии WebSocket для пользователя {user_id}: {e}")
 
-
 async def message_listener(user_id: str, websocket: WebSocket):
     """
     Фоновая задача для периодической отправки новых чатов и сообщений пользователю.
@@ -129,7 +196,6 @@ async def message_listener(user_id: str, websocket: WebSocket):
     except Exception as e:
         logging.error(f"Ошибка в message_listener для пользователя {user_id}: {e}")
 
-
 async def register_user(user_id: str):
     """
     Регистрирует пользователя в WebSocket Manager.
@@ -138,16 +204,13 @@ async def register_user(user_id: str):
     :raises HTTPException: Если регистрация неудачна.
     """
     print(f"Registering user {user_id} with WebSocket Manager.")
-    url = f"{WEBSOCKET_MANAGER_URL}/connect"
     payload = {
         "user_id": user_id,
         "websocket_handler_id": HANDLER_ID
     }
-    response = await http_client.post(url, json=payload)
-    print(f"Registration response for user {user_id}: {response.status_code}")
-    if response.status_code != 200:
-        raise HTTPException(status_code=response.status_code, detail=f"Не удалось зарегистрировать пользователя {user_id}")
-
+    response = await request_with_retry('POST', 'websocket_manager', '/connect', json=payload)
+    if not response or response.status_code != 200:
+        raise HTTPException(status_code=response.status_code if response else 500, detail=f"Не удалось зарегистрировать пользователя {user_id}")
 
 async def unregister_user(user_id: str):
     """
@@ -156,15 +219,12 @@ async def unregister_user(user_id: str):
     :param user_id: Идентификатор пользователя для снятия регистрации.
     """
     print(f"Unregistering user {user_id} from WebSocket Manager.")
-    url = f"{WEBSOCKET_MANAGER_URL}/disconnect"
     payload = {
         "user_id": user_id
     }
-    response = await http_client.post(url, json=payload)
-    print(f"Unregistration response for user {user_id}: {response.status_code}")
-    if response.status_code != 200:
+    response = await request_with_retry('POST', 'websocket_manager', '/disconnect', json=payload)
+    if not response or response.status_code != 200:
         logging.warning(f"Не удалось снять регистрацию пользователя {user_id}.")
-
 
 async def handle_incoming_message(sender_id: str, message_data: Dict):
     """
@@ -225,7 +285,6 @@ async def handle_incoming_message(sender_id: str, message_data: Dict):
             print(f"Recipient {recipient_id} is offline. Handling offline delivery.")
             await handle_offline_recipient(recipient_id, message_id)
 
-
 async def save_message(sender_id: str, recipient_id: str, content: str, chat_id: Optional[str]) -> str:
     """
     Сохраняет сообщение через Message Service.
@@ -251,21 +310,18 @@ async def save_message(sender_id: str, recipient_id: str, content: str, chat_id:
             "sender_id": sender_id,
             "content": content
         }
-        url = f"{MESSAGE_SERVICE_URL}/messages/"
-        response = await http_client.post(url, json=message_data)
-        print(f"Message service response: {response.status_code}")
-        if response.status_code == 200:
+        response = await request_with_retry('POST', 'message_service', '/messages/', json=message_data)
+        if response and response.status_code == 200:
             message = response.json()
             message_id = message.get('_id')
             logging.info(f"Сообщение сохранено с ID {message_id}")
             return message_id
         else:
-            logging.error(f"Не удалось сохранить сообщение: {response.text}")
-            raise HTTPException(status_code=response.status_code, detail="Не удалось сохранить сообщение")
+            logging.error(f"Не удалось сохранить сообщение: {response.text if response else 'No response'}")
+            raise HTTPException(status_code=response.status_code if response else 500, detail="Не удалось сохранить сообщение")
     except Exception as e:
         logging.error(f"Ошибка при сохранении сообщения: {e}")
         raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
-
 
 async def update_message_status(message_id: str, user_id: str, status: str):
     """
@@ -284,16 +340,14 @@ async def update_message_status(message_id: str, user_id: str, status: str):
             "receiver_id": user_id,
             "status": status
         }
-        url = f"{MESSAGE_SERVICE_URL}/messages/{message_id}/status"
-        response = await http_client.put(url, json=status_data)
-        print(f"Update status response: {response.status_code}")
-        if response.status_code == 200:
+        path = f"/messages/{message_id}/status"
+        response = await request_with_retry('PUT', 'message_service', path, json=status_data)
+        if response and response.status_code == 200:
             logging.info(f"Статус сообщения {message_id} для пользователя {user_id} обновлен на {status}")
         else:
-            logging.error(f"Не удалось обновить статус сообщения: {response.text}")
+            logging.error(f"Не удалось обновить статус сообщения: {response.text if response else 'No response'}")
     except Exception as e:
         logging.error(f"Ошибка при обновлении статуса сообщения: {e}")
-
 
 async def get_chat_id(user1_id: str, user2_id: str) -> str:
     """
@@ -307,26 +361,23 @@ async def get_chat_id(user1_id: str, user2_id: str) -> str:
     print(f"Fetching chat ID between {user1_id} and {user2_id}")
     try:
         # Сначала проверяем, существует ли чат
-        url = f"{MESSAGE_SERVICE_URL}/chats/{user1_id}"
-        response = await http_client.get(url)
-        print(f"Get chat response: {response.status_code}")
-        if response.status_code == 200:
+        path = f"/chats/{user1_id}"
+        response = await request_with_retry('GET', 'message_service', path)
+        if response and response.status_code == 200:
             chats = response.json()
             for chat in chats:
                 participants = set(chat.get('participants', []))
                 if participants == {user1_id, user2_id}:
                     return chat['_id']
         else:
-            logging.error(f"Не удалось получить чаты пользователя {user1_id}: {response.text}")
+            logging.error(f"Не удалось получить чаты пользователя {user1_id}: {response.text if response else 'No response'}")
 
         # Если чат не существует, создаем его
         chat_data = {
             "participants": [user1_id, user2_id]
         }
-        url = f"{MESSAGE_SERVICE_URL}/chats/"
-        response = await http_client.post(url, json=chat_data)
-        print(f"Create chat response: {response.status_code}")
-        if response.status_code == 200:
+        response = await request_with_retry('POST', 'message_service', '/chats/', json=chat_data)
+        if response and response.status_code == 200:
             chat = response.json()
             chat_id = chat.get('_id')
             if not chat_id:
@@ -334,12 +385,11 @@ async def get_chat_id(user1_id: str, user2_id: str) -> str:
                 raise HTTPException(status_code=500, detail="Не удалось получить 'id' чата")
             return chat_id
         else:
-            logging.error(f"Не удалось создать чат: {response.text}")
-            raise HTTPException(status_code=response.status_code, detail="Не удалось создать чат")
+            logging.error(f"Не удалось создать чат: {response.text if response else 'No response'}")
+            raise HTTPException(status_code=response.status_code if response else 500, detail="Не удалось создать чат")
     except Exception as e:
         logging.error(f"Ошибка при получении или создании чата: {e}")
         raise HTTPException(status_code=500, detail="Внутренняя ошибка сервера")
-
 
 async def get_handler_for_user(user_id: str) -> Optional[str]:
     """
@@ -350,17 +400,15 @@ async def get_handler_for_user(user_id: str) -> Optional[str]:
     :raises HTTPException: Если не удалось получить обработчик.
     """
     print(f"Fetching handler for user {user_id}")
-    url = f"{WEBSOCKET_MANAGER_URL}/handler/{user_id}"
-    response = await http_client.get(url)
-    print(f"Get handler response: {response.status_code}")
-    if response.status_code == 200:
+    path = f"/handler/{user_id}"
+    response = await request_with_retry('GET', 'websocket_manager', path)
+    if response and response.status_code == 200:
         data = response.json()
         return data.get('websocket_handler_id')
-    elif response.status_code == 404:
+    elif response and response.status_code == 404:
         return None
     else:
-        raise HTTPException(status_code=response.status_code, detail=f"Не удалось получить обработчик для пользователя {user_id}")
-
+        raise HTTPException(status_code=response.status_code if response else 500, detail=f"Не удалось получить обработчик для пользователя {user_id}")
 
 async def forward_message_to_handler(handler_id: str, message_data: Dict):
     """
@@ -370,19 +418,38 @@ async def forward_message_to_handler(handler_id: str, message_data: Dict):
     :param message_data: Данные сообщения для пересылки.
     """
     print(f"Forwarding message to handler {handler_id}")
-    handler_url = HANDLER_URLS.get(handler_id)
+    # Получаем URL обработчика из API Gateway
+    handler_url = await get_handler_url(handler_id)
     if not handler_url:
         logging.error(f"URL для обработчика {handler_id} не найден.")
         return
 
-    url = f"{handler_url}/forward_message"
-    response = await http_client.post(url, json=message_data)
-    print(f"Forward message response: {response.status_code}")
-    if response.status_code != 200:
-        logging.error(f"Не удалось переслать сообщение обработчику {handler_id}: {response.text}")
-    else:
-        logging.info(f"Сообщение переслано обработчику {handler_id}.")
+    url = urljoin(handler_url, '/forward_message')
+    try:
+        response = await http_client.post(url, json=message_data)
+        if response.status_code != 200:
+            logging.error(f"Не удалось переслать сообщение обработчику {handler_id}: {response.text}")
+        else:
+            logging.info(f"Сообщение переслано обработчику {handler_id}.")
+    except Exception as e:
+        logging.error(f"Ошибка при пересылке сообщения обработчику {handler_id}: {e}")
 
+async def get_handler_url(handler_id: str) -> Optional[str]:
+    """
+    Получает URL обработчика WebSocket по его идентификатору.
+
+    :param handler_id: Идентификатор обработчика.
+    :return: URL обработчика или None.
+    """
+    # По умолчанию предполагаем, что обработчики зарегистрированы в WebSocket Manager
+    path = f"/handler_url/{handler_id}"
+    response = await request_with_retry('GET', 'websocket_manager', path)
+    if response and response.status_code == 200:
+        data = response.json()
+        return data.get('websocket_handler_url')
+    else:
+        logging.error(f"Не удалось получить URL обработчика {handler_id}")
+        return None
 
 async def send_new_chats_and_messages(user_id: str, websocket: WebSocket):
     """
@@ -394,10 +461,9 @@ async def send_new_chats_and_messages(user_id: str, websocket: WebSocket):
     print(f"Sending new chats and messages to user {user_id}")
     try:
         # Получение новых чатов, статус которых для данного пользователя 'undelivered'
-        chats_url = f"{MESSAGE_SERVICE_URL}/chats/{user_id}/new"
-        response = await http_client.get(chats_url)
-        print(f"Get new chats response: {response.status_code}")
-        if response.status_code == 200:
+        path = f"/chats/{user_id}/new"
+        response = await request_with_retry('GET', 'message_service', path)
+        if response and response.status_code == 200:
             chats = response.json()
             if chats:
                 # Отправляем новые чаты пользователю
@@ -408,10 +474,9 @@ async def send_new_chats_and_messages(user_id: str, websocket: WebSocket):
                     # Обновляем статус чата
                     await update_chat_status(chat_id, user_id, status="delivered")
                     # Для каждого чата получаем новые сообщения для пользователя
-                    messages_url = f"{MESSAGE_SERVICE_URL}/messages/{chat_id}/new/{user_id}"
-                    messages_response = await http_client.get(messages_url)
-                    print(f"Get new messages response: {messages_response.status_code}")
-                    if messages_response.status_code == 200:
+                    messages_path = f"/messages/{chat_id}/new/{user_id}"
+                    messages_response = await request_with_retry('GET', 'message_service', messages_path)
+                    if messages_response and messages_response.status_code == 200:
                         messages = messages_response.json()
                         if messages:
                             # Отправляем сообщения пользователю
@@ -421,10 +486,9 @@ async def send_new_chats_and_messages(user_id: str, websocket: WebSocket):
                                 message_id = message["_id"]
                                 await update_message_status(message_id, user_id, status="delivered")
         else:
-            logging.error(f"Не удалось получить новые чаты для пользователя {user_id}: {response.text}")
+            logging.error(f"Не удалось получить новые чаты для пользователя {user_id}: {response.text if response else 'No response'}")
     except Exception as e:
         logging.error(f"Ошибка при отправке новых чатов и сообщений: {e}")
-
 
 async def send_all_chats_and_messages(user_id: str, websocket: WebSocket):
     """
@@ -436,10 +500,9 @@ async def send_all_chats_and_messages(user_id: str, websocket: WebSocket):
     print(f"Sending all chats and messages to user {user_id}")
     try:
         # Получение всех чатов пользователя
-        chats_url = f"{MESSAGE_SERVICE_URL}/chats/{user_id}"
-        response = await http_client.get(chats_url)
-        print(f"Get all chats response: {response.status_code}")
-        if response.status_code == 200:
+        path = f"/chats/{user_id}"
+        response = await request_with_retry('GET', 'message_service', path)
+        if response and response.status_code == 200:
             chats = response.json()
             if chats:
                 # Отправляем чаты пользователю
@@ -447,10 +510,9 @@ async def send_all_chats_and_messages(user_id: str, websocket: WebSocket):
                 # Для каждого чата получаем все сообщения
                 for chat in chats:
                     chat_id = chat["_id"]
-                    messages_url = f"{MESSAGE_SERVICE_URL}/messages/{chat_id}"
-                    messages_response = await http_client.get(messages_url)
-                    print(f"Get all messages response: {messages_response.status_code}")
-                    if messages_response.status_code == 200:
+                    messages_path = f"/messages/{chat_id}"
+                    messages_response = await request_with_retry('GET', 'message_service', messages_path)
+                    if messages_response and messages_response.status_code == 200:
                         messages = messages_response.json()
                         if messages:
                             # Отправляем сообщения пользователю
@@ -460,12 +522,11 @@ async def send_all_chats_and_messages(user_id: str, websocket: WebSocket):
                                 if message["sender_id"] != user_id:
                                     message_id = message["_id"]
                                     await update_message_status(message_id, user_id, status="delivered")
-            logging.info(f"Чаты и сообщения отправлены пользователю {user_id}")
+                logging.info(f"Чаты и сообщения отправлены пользователю {user_id}")
         else:
-            logging.error(f"Не удалось получить чаты для пользователя {user_id}: {response.text}")
+            logging.error(f"Не удалось получить чаты для пользователя {user_id}: {response.text if response else 'No response'}")
     except Exception as e:
         logging.error(f"Ошибка при отправке чатов и сообщений: {e}")
-
 
 async def update_chat_status(chat_id: str, user_id: str, status: str):
     """
@@ -481,16 +542,14 @@ async def update_chat_status(chat_id: str, user_id: str, status: str):
             "receiver_id": user_id,
             "status": status
         }
-        url = f"{MESSAGE_SERVICE_URL}/chats/{chat_id}/status"
-        response = await http_client.put(url, json=status_data)
-        print(f"Update chat status response: {response.status_code}")
-        if response.status_code == 200:
+        path = f"/chats/{chat_id}/status"
+        response = await request_with_retry('PUT', 'message_service', path, json=status_data)
+        if response and response.status_code == 200:
             logging.info(f"Статус чата {chat_id} для пользователя {user_id} обновлен на {status}")
         else:
-            logging.error(f"Не удалось обновить статус чата: {response.text}")
+            logging.error(f"Не удалось обновить статус чата: {response.text if response else 'No response'}")
     except Exception as e:
         logging.error(f"Ошибка при обновлении статуса чата: {e}")
-
 
 @app.post("/forward_message")
 async def forward_message_endpoint(message_data: Dict):
@@ -512,7 +571,6 @@ async def forward_message_endpoint(message_data: Dict):
         logging.warning(f"Получатель {recipient_id} не подключен к этому обработчику.")
         return {"status": "not_delivered"}
 
-
 async def deliver_message(websocket: WebSocket, message_data: Dict):
     """
     Доставляет сообщение получателю через WebSocket.
@@ -526,7 +584,6 @@ async def deliver_message(websocket: WebSocket, message_data: Dict):
     # Обновляем статус сообщения на "delivered"
     await update_message_status(message_data.get('message_id'), message_data.get('recipient_id'), status="delivered")
 
-
 async def handle_offline_recipient(recipient_id: str, message_id: str):
     """
     Обрабатывает сценарий, когда получатель сообщения оффлайн.
@@ -537,6 +594,32 @@ async def handle_offline_recipient(recipient_id: str, message_id: str):
     print(f"Handling offline recipient {recipient_id} for message {message_id}")
     logging.info(f"Обработка оффлайн-получателя {recipient_id} для сообщения {message_id}.")
     # Здесь вы можете добавить логику для отправки уведомления через Push Notification Service
+
+async def check_token(user_id: str, token: str) -> bool:
+    """
+    Проверяет токен пользователя через API Gateway (Auth Service).
+
+    :param user_id: Идентификатор пользователя.
+    :param token: Токен пользователя.
+    :return: True, если токен действителен, иначе False.
+    """
+    params = {"uid": user_id, "token": token}
+    response = await request_with_retry('GET', 'auth_service', '/token_check', params=params)
+    if response and response.status_code == 200:
+        return True
+    else:
+        logging.error(f"Неверный или просроченный токен для пользователя {user_id}")
+        return False
+
+
+@app.get("/health")
+async def health_check():
+    """
+    Эндпоинт для проверки состояния сервиса.
+
+    :return: Сообщение о том, что сервис работает.
+    """
+    return {"status": "ok", "message": "WebSocket Handler работает"}
 
 
 @app.get("/")

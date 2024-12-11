@@ -30,6 +30,7 @@ WebSocket Handler обеспечивает взаимодействие межд
      ```json
      {
          "type": "create_chat",
+         "token": "token",
          "recipient_id": "user2"
      }
      ```
@@ -43,6 +44,7 @@ WebSocket Handler обеспечивает взаимодействие межд
      ```json
      {
          "type": "send_message",
+         "token": "token",
          "recipient_id": "user2",
          "content": "Привет!",
          "chat_id": "chat123"
@@ -59,13 +61,15 @@ WebSocket Handler обеспечивает взаимодействие межд
    - Формат:
      ```json
      {
-         "type": "fetch_chats"
+         "type": "fetch_chats",
+         "token": "token"
      }
      ```
 
 4. Пинг для поддержания соединения
    - Тип: `ping`
    - Описание: Отправляет пинг-сообщение серверу для проверки соединения.
+   - Не нуждается в "token".
    - Формат:
      ```json
      {

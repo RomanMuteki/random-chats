@@ -1,0 +1,13 @@
+{
+    "user": "username",
+    "password": "password for chosen user",
+    "database": "database",
+    "db_host": "hostname",
+    "db_port": "port",
+    "jwt_key": "Your key to encrypt JWTs",
+    "password_key": "Your key to encrypt passwords",
+    "server_host": "0.0.0.0",
+    "server_port": 8300,
+    "api_gateway_url": "http://localhost:8500",
+    "max_attempts": 5
+}

@@ -1,12 +1,11 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import redis.asyncio as redis  # Используем асинхронный клиент Redis
+import redis.asyncio as redis
 import json
 import os
 import logging
-from fastapi.middleware.cors import CORSMiddleware
-
-
+import httpx
+from typing import Optional
 
 logging.basicConfig(level=logging.INFO)
 
@@ -21,6 +20,8 @@ with open(CONFIG_FILE, 'r') as f:
 REDIS_HOST = config.get('redis_host', 'localhost')
 REDIS_PORT = config.get('redis_port', 6379)
 REDIS_DB = config.get('redis_db', 0)
+API_GATEWAY_URL = config.get('api_gateway_url', 'http://localhost:8500')
+MAX_ATTEMPTS = config.get('max_attempts', 5)
 
 r = redis.Redis(
     host=REDIS_HOST,
@@ -31,13 +32,7 @@ r = redis.Redis(
 
 app = FastAPI(title="WebSocket Manager")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Разрешает доступ с любых доменов
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+http_client = httpx.AsyncClient()
 
 
 class Connection(BaseModel):
@@ -52,6 +47,47 @@ class User(BaseModel):
 class HandlerRegistration(BaseModel):
     websocket_handler_id: str
     websocket_handler_url: str
+
+
+async def request_with_retry(method: str, service_name: str, path: str, **kwargs) -> Optional[httpx.Response]:
+    """
+    Выполняет HTTP запрос к сервису с повторными попытками и обновлением URL из API Gateway.
+
+    :param method: HTTP метод ('GET', 'POST', 'PUT', 'DELETE').
+    :param service_name: Название сервиса.
+    :param path: Путь эндпоинта в сервисе.
+    :param kwargs: Дополнительные параметры для httpx.request.
+    :return: Ответ httpx.Response или None.
+    """
+    attempts = 0
+    while attempts < MAX_ATTEMPTS:
+        url = f"{API_GATEWAY_URL}/get_service_instance?service_name={service_name}"
+        try:
+            response = await http_client.get(url)
+            if response.status_code == 200:
+                instance = response.json().get('instance')
+                service_url = instance['url']
+                full_url = f"{service_url}{path}"
+                response = await http_client.request(method, full_url, **kwargs)
+                if response.status_code == 200:
+                    return response
+                else:
+                    logging.error(f"Ошибка при обращении к {service_name}: {response.status_code} {response.text}")
+                    attempts += 1
+            else:
+                logging.error(f"Не удалось получить экземпляр {service_name} из API Gateway: {response.text}")
+                attempts += 1
+        except Exception as e:
+            logging.error(f"Исключение при обращении к {service_name}: {e}")
+            attempts += 1
+    logging.error(f"Не удалось связаться с {service_name} после {MAX_ATTEMPTS} попыток")
+    return None
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Закрытие HTTP клиента при завершении работы приложения."""
+    await http_client.aclose()
 
 
 @app.post("/register_handler")

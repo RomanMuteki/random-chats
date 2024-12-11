@@ -1,0 +1,9 @@
+{
+    "redis_host": "url of redis server",
+    "redis_port": "port of redis server",
+    "auth_service_url": "address of authentification",
+    "server_url": "0.0.0.0",
+    "server_port": 8000,
+    "api_gateway_url": "http://localhost:8400",
+    "max_attempts": 5
+}

@@ -5,8 +5,8 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
-from fastapi.middleware.cors import CORSMiddleware
 import json
+import httpx
 from models import (
     MessageCreate,
     MessageStatusUpdate,
@@ -26,6 +26,8 @@ MONGODB_URL = config.get('mongodb_url', 'mongodb://localhost:27017')
 DATABASE_NAME = config.get('database_name', 'random_chats_db')
 SERVICE_NAME = config.get('service_name', 'Message Service')
 LOG_LEVEL = config.get('log_level', 'INFO')
+API_GATEWAY_URL = config.get('api_gateway_url', 'http://localhost:8500')
+MAX_ATTEMPTS = config.get('max_attempts', 5)
 
 client = AsyncIOMotorClient(MONGODB_URL)
 db = client[DATABASE_NAME]
@@ -35,14 +37,7 @@ logger = logging.getLogger(SERVICE_NAME)
 
 app = FastAPI(title=SERVICE_NAME)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Разрешает доступ с любых доменов
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+http_client = httpx.AsyncClient()
 
 def validate_object_id(id_str: str, name: str) -> ObjectId:
     try:
@@ -50,6 +45,39 @@ def validate_object_id(id_str: str, name: str) -> ObjectId:
     except Exception:
         raise HTTPException(status_code=422, detail=f"Invalid {name}: {id_str}")
 
+async def request_with_retry(method: str, service_name: str, path: str, **kwargs) -> Optional[httpx.Response]:
+    """
+    Выполняет HTTP запрос к сервису с повторными попытками и обновлением URL из API Gateway.
+
+    :param method: HTTP метод ('GET', 'POST', 'PUT', 'DELETE').
+    :param service_name: Название сервиса.
+    :param path: Путь эндпоинта в сервисе.
+    :param kwargs: Дополнительные параметры для httpx.request.
+    :return: Ответ httpx.Response или None.
+    """
+    attempts = 0
+    while attempts < MAX_ATTEMPTS:
+        url = f"{API_GATEWAY_URL}/get_service_instance?service_name={service_name}"
+        try:
+            response = await http_client.get(url)
+            if response.status_code == 200:
+                instance = response.json().get('instance')
+                service_url = instance['url']
+                full_url = f"{service_url}{path}"
+                response = await http_client.request(method, full_url, **kwargs)
+                if response.status_code == 200:
+                    return response
+                else:
+                    logger.error(f"Ошибка при обращении к {service_name}: {response.status_code} {response.text}")
+                    attempts += 1
+            else:
+                logger.error(f"Не удалось получить экземпляр {service_name} из API Gateway: {response.text}")
+                attempts += 1
+        except Exception as e:
+            logger.error(f"Исключение при обращении к {service_name}: {e}")
+            attempts += 1
+    logger.error(f"Не удалось связаться с {service_name} после {MAX_ATTEMPTS} попыток")
+    return None
 
 @app.on_event("startup")
 async def create_indexes():
@@ -61,6 +89,10 @@ async def create_indexes():
         logger.error(f"Ошибка при создании индексов: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при создании индексов")
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Закрытие HTTP клиента при завершении работы приложения."""
+    await http_client.aclose()
 
 @app.post("/messages/", response_model=Message)
 async def create_message(message: MessageCreate):
@@ -104,7 +136,6 @@ async def create_message(message: MessageCreate):
         logger.error(f"Ошибка при создании сообщения: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при создании сообщения")
 
-
 @app.put("/messages/{message_id}/status")
 async def update_message_status(message_id: str, status_update: MessageStatusUpdate):
     """Обновляет статус сообщения для определенного получателя."""
@@ -131,6 +162,12 @@ async def update_message_status(message_id: str, status_update: MessageStatusUpd
 async def create_chat(chat: ChatCreate):
     """Создает новый чат между участниками."""
     try:
+        # Проверяем, существует ли уже чат с этими участниками, только если их двое
+        if len(chat.participants) == 2:
+            existing_chat = await db["chats"].find_one({"participants": {"$all": chat.participants, "$size": 2}})
+            if existing_chat:
+                raise HTTPException(status_code=400, detail="Чат между этими участниками уже существует")
+
         chat_dict = chat.dict()
         chat_dict["created_at"] = datetime.utcnow()
         # Инициализируем статус доставки для каждого участника как 'undelivered'
@@ -138,6 +175,9 @@ async def create_chat(chat: ChatCreate):
         result = await db["chats"].insert_one(chat_dict)
         chat_dict["_id"] = result.inserted_id
         return Chat(**chat_dict)
+    except HTTPException as e:
+        # Перехватываем и повторно выбрасываем HTTPException
+        raise e
     except Exception as e:
         logger.error(f"Ошибка при создании чата: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при создании чата")
@@ -156,7 +196,6 @@ async def get_user_chats(user_id: str):
         logger.error(f"Ошибка при получении чатов пользователя {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при получении чатов")
 
-
 @app.get("/messages/{chat_id}", response_model=List[Message])
 async def get_chat_messages(chat_id: str, limit: int = 50, skip: int = 0):
     """Получает сообщения из чата."""
@@ -172,7 +211,6 @@ async def get_chat_messages(chat_id: str, limit: int = 50, skip: int = 0):
     except Exception as e:
         logger.error(f"Ошибка при получении сообщений: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при получении сообщений")
-
 
 @app.get("/messages/{chat_id}/new", response_model=List[Message])
 async def get_new_messages(chat_id: str, last_message_id: Optional[str] = None):
@@ -198,7 +236,6 @@ async def get_new_messages(chat_id: str, last_message_id: Optional[str] = None):
         logger.error(f"Ошибка при получении новых сообщений для чата {chat_id}: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при получении новых сообщений")
 
-
 @app.get("/messages/{chat_id}/new/{user_id}", response_model=List[Message])
 async def get_new_messages(chat_id: str, user_id: str):
     """Получает новые сообщения в чате, которые не были доставлены пользователю."""
@@ -215,7 +252,6 @@ async def get_new_messages(chat_id: str, user_id: str):
     except Exception as e:
         logger.error(f"Ошибка при получении новых сообщений для чата {chat_id}: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при получении новых сообщений")
-
 
 @app.get("/chats/{user_id}/new", response_model=List[Chat])
 async def get_new_chats(user_id: str):
@@ -234,7 +270,6 @@ async def get_new_chats(user_id: str):
         logger.error(f"Ошибка при получении новых чатов пользователя {user_id}: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при получении новых чатов")
 
-
 @app.put("/chats/{chat_id}/status")
 async def update_chat_status(chat_id: str, status_update: MessageStatusUpdate):
     """Обновляет статус чата для определенного пользователя."""
@@ -252,7 +287,6 @@ async def update_chat_status(chat_id: str, status_update: MessageStatusUpdate):
     except Exception as e:
         logger.error(f"Ошибка при обновлении статуса чата: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при обновлении статуса чата")
-
 
 @app.get("/")
 async def root():

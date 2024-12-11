@@ -1,0 +1,5 @@
+This service requires some python side packages to work. Here is the list of them:
+redis
+fastapi
+Pydantic
+Uvicorn

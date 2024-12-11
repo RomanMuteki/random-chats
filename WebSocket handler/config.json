@@ -1,6 +1,6 @@
 {
-    "websocket_manager_url": "http://localhost:8000",
-    "message_service_url": "http://localhost:8200",
+    "api_gateway_url": "http://localhost:8500",
+    "max_attempts": 5,
     "handler_id": "WSH1",
     "handler_url": "http://localhost:8001"
 }
