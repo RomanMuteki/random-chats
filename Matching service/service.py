@@ -1,19 +1,10 @@
-import asyncpg
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException
 from tasks import match_user
+import requests
 
 app = FastAPI()
-
-
-async def get_db_connection():
-    return await asyncpg.connect(
-        user="postgres",
-        password="admin",
-        database="auth_service",
-        host="localhost",
-        port="5435"
-    )
+url = "http://127.0.0.1:8000"
 
 
 class CreateRequest(BaseModel):
@@ -25,7 +16,10 @@ class CheckRequest(BaseModel):
 
 @app.post('/create_match_request')
 async def create_match_request(request: CreateRequest):
-    task = match_user.delay(request.uid)
+    payload = {'uid': request.uid}
+    userdata = requests.get(url + '/matching_info', json=payload)
+    userdata1 = dict(userdata.json())
+    task = match_user.delay(request.uid, userdata1)
     return {'task_id': task.id}
 
 

@@ -1,6 +1,5 @@
 import celery
 import redis
-import requests
 
 redis_client = redis.StrictRedis(host='localhost', port=6379, decode_responses=True)
 
@@ -18,21 +17,11 @@ celery_app.conf.update(
     enable_utc=True
 )
 
-db_settings = {
-    'user': "postgres",
-    'password': "admin",
-    'dbname': "auth_service",
-    'host': "localhost",
-    'port': "5435"
-}
-
-url = "http://localhost:8000"
-
 
 def age_gap(age_frames):
     age_frames = age_frames.split('-')
     minimal_age, maximal_age = int(age_frames[0]), int(age_frames[1])
-    ages = [age for age in (minimal_age, minimal_age + (maximal_age - minimal_age))]
+    ages = [age for age in range(minimal_age, minimal_age + (maximal_age - minimal_age) + 1)]
     return ages
 
 
@@ -43,18 +32,32 @@ def add_user_to_queue(uid, queue_key):
 
 
 @celery_app.task
-def match_user(uid):
-    payload = {'uid': uid}
-    userdata = requests.post(url + '/matching_info', json=payload)
-    userdata = userdata.json()
-    queue_key = f"queue: {userdata['age'], userdata['sex']}"
+def match_user(uid, userdata1):
+    userdata1 = dict(userdata1)
+    queue_key = f"queue:{userdata1['age']}-{userdata1['sex']}"
 
-    for age_ in age_gap(userdata['preferred_age']):
-        search_key = f"queue: {age_, userdata['preferred_sex']}"
-
+    for age_ in age_gap(userdata1['preferred_age']):
+        search_key = f"queue:{age_}-{userdata1['preferred_sex']}"
+        print(age_)
         matched_user_id = redis_client.rpop(search_key)
         if matched_user_id:
+            print('found')
             if matched_user_id != uid:
+                print('foundd')
                 return matched_user_id
 
-    return add_user_to_queue(uid, queue_key)
+    task = add_user_to_queue.delay(uid, queue_key)
+    return task
+
+
+if __name__ == "__main__":
+    import celery.result
+    userdata1 = {
+        "age": 23,
+        "sex": "female",
+        "preferred_age": "21-24",
+        "preferred_sex": "female",
+    }
+    b = match_user("403574114475", userdata1)
+    print(b)
+    print(celery.result.AsyncResult(b))
