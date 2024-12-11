@@ -1,5 +1,7 @@
-Auth service/.idea
-matching service/.idea
-Auth service/q.py
+'Auth service'/.idea
+'Matching service'/.idea
+'Auth service'/q.py
 messenger_app/CMakeLists.txt.user
 messenger_app/build
+'Auth service'/config.json
+'Matching service'/config.jso

@@ -1,10 +1,19 @@
 from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException
 import requests, redis
+import json
 
-redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
+CFG_FILE = 'config.json'
+if not CFG_FILE:
+    raise FileNotFoundError(f"Файл конфигурации {CFG_FILE} не найден.")
+
+with open(CFG_FILE, 'r') as file:
+    config = json.load(file)
+
+
+redis_client = redis.StrictRedis(host=config['redis_host'], port=config['redis_port'], db=0, decode_responses=True)
 app = FastAPI()
-url = "http://127.0.0.1:8000"
+url = config['auth_service_url']
 
 
 class CreateRequest(BaseModel):
@@ -49,4 +58,4 @@ async def check_match_result(request: CreateRequest):
 if __name__ == '__main__':
     import uvicorn
 
-    uvicorn.run(app, host='0.0.0.0', port=8001)
+    uvicorn.run(app, host=config['server_url'], port=config['server_port'])

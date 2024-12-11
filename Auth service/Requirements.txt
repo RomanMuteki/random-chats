@@ -1,0 +1,6 @@
+This service requires some python side packages to work. Here is the list of them:
+PyJWT
+fastapi
+Pydantic
+Uvicorn
+asyncpg

@@ -3,22 +3,30 @@ import hashlib
 import datetime
 import jwt
 import asyncpg
+import json
 from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 
-PRIVATE_JWT_KEY = "Mortira Moraxa"
-PASSWORD_ENCRYPTION_KEY = 'pushkatanka'
+CFG_FILE = 'config.json'
+if not CFG_FILE:
+    raise FileNotFoundError(f"Файл конфигурации {CFG_FILE} не найден.")
+
+with open(CFG_FILE, 'r') as file:
+    config = json.load(file)
+
+PRIVATE_JWT_KEY = config['jwt_key']
+PASSWORD_ENCRYPTION_KEY = config['password_key']
 
 app = FastAPI()
 
 
 async def get_db_connection():
     return await asyncpg.connect(
-        user="postgres",
-        password="admin",
-        database="auth_service",
-        host="localhost",
-        port="5435"
+        user=config['user'],
+        password=config['password'],
+        database=config['database'],
+        host=config['db_host'],
+        port=config['db_port']
     )
 
 
@@ -197,4 +205,4 @@ async def GetInfoByUrl(request: MatchingGetInfo, db=Depends(get_db_connection)):
 if __name__ == '__main__':
     import uvicorn
 
-    uvicorn.run(app, host='0.0.0.0', port=8000)
+    uvicorn.run(app, host=config['server_host'], port=config['server_port'])

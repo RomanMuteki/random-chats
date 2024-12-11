@@ -1,0 +1,11 @@
+{
+	"user": "username",
+	"password": "password for chosen user",
+	"database": "database",
+	"db_host": "hostname",
+	"db_port": "port",
+	"jwt_key": "Your key to encrypt JWTs",
+	"password_key": "Your key to encrypt passwords",
+	"server_host": "IP of server",
+	"server_port": "port where server will be"
+}

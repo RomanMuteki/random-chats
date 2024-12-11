@@ -1,0 +1,7 @@
+{
+	"redis_host": "url of redis server",
+	"redis_port": "port of redis server",
+	"auth_service_url": "address of authentification",
+	"server_url": "url for this server",
+	"server_port": 0000
+}
