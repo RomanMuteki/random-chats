@@ -4,4 +4,5 @@
 messenger_app/CMakeLists.txt.user
 messenger_app/build
 'Auth service'/config.json
-'Matching service'/config.jso
+'Matching service'/config.json
+'Matching service'/__pycache__

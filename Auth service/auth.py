@@ -134,7 +134,7 @@ async def login(request: LoginRequest, db=Depends(get_db_connection)):
             UPDATE users2 SET access_token = $1, refresh_token = $2 WHERE uid = $3
         """
     await db.execute(update_query, access_token, refresh_token, uid)
-    return {"status": "success", "access_token": access_token, "refresh_token": refresh_token}
+    return {"status": "success", "access_token": access_token, "refresh_token": refresh_token, "uid": uid}
 
 
 @app.post("/token_login")
@@ -199,6 +199,19 @@ async def GetInfoByUrl(request: MatchingGetInfo, db=Depends(get_db_connection)):
         else:
             return {"sex": user['sex'], "age": user['age'],
                     "preferred_age": user['preffered_age'], "preferred_sex": user['preffered_sex']}
+    except Exception as E:
+        raise HTTPException(status_code=500, detail=E)
+
+
+@app.get('/get_info_by_id')
+async def Get_name(request: MatchingGetInfo, db=Depends(get_db_connection)):
+    try:
+        query = "SELECT * FROM users2 WHERE uid = $1"
+        user = await db.fetchrow(query, request.uid)
+        if user is None:
+            raise HTTPException(status_code=400, detail="User not found")
+        else:
+            return {"username": user['username']}
     except Exception as E:
         raise HTTPException(status_code=500, detail=E)
 
