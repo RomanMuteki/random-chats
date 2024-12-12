@@ -38,6 +38,7 @@ class Chat(BaseModel):
     participants: List[str]
     created_at: datetime
     last_message: Optional[Dict] = None
+    participants_names: List[str]
 
     class Config:
         allow_population_by_field_name = True

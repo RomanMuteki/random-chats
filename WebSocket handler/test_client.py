@@ -1,3 +1,4 @@
+# (Сейчас может не работать так как был написан для отладки более старых версий микро-сервисов)
 import asyncio
 import websockets
 import tkinter as tk
