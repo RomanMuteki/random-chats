@@ -1,7 +1,16 @@
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QJsonObject>
+#include <QJsonDocument>
+#include <QMessageBox>
+#include <QSettings>
+#include <QDebug>
 #include "mainwindow.h"
 #include "loginform.h"
 #include "registerform.h"
 #include "mainchatwindow.h"
+#include "chatwindow.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     //chatWindow = new ChatWindow("", this);
@@ -28,6 +37,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     connect(registerForm, &RegisterForm::loginClicked, this, &MainWindow::showLoginForm);
     connect(loginForm, &LoginForm::loginSuccessful, this, &MainWindow::showMainChatWindow);
     connect(mainChatWindow, &MainChatWindow::chatSelected, this, &MainWindow::showChatWindow);
+    connect(loginForm, &LoginForm::tokenValidationSuccessful, this, &MainWindow::showMainChatWindow);
 }
 
 MainWindow::~MainWindow() {}
@@ -36,9 +46,11 @@ void MainWindow::showRegisterForm() {
     qDebug() << "showRegisterForm";
     loginForm->hide();
     //delete registerForm;
-    //registerForm = new RegisterForm(this);
+    registerForm = new RegisterForm(this);
     registerForm->show();
     setCentralWidget(registerForm);
+
+    connect(registerForm, &RegisterForm::loginClicked, this, &MainWindow::showLoginForm);
 }
 
 void MainWindow::showLoginForm() {
@@ -50,6 +62,9 @@ void MainWindow::showLoginForm() {
     loginForm->show();
     qDebug() << "showLoginForm3";
     setCentralWidget(loginForm);
+
+    connect(loginForm, &LoginForm::goToRegister, this, &MainWindow::showRegisterForm);
+    connect(loginForm, &LoginForm::loginSuccessful, this, &MainWindow::showMainChatWindow);
 }
 
 void MainWindow::showMainChatWindow() {
@@ -58,14 +73,21 @@ void MainWindow::showMainChatWindow() {
     qDebug() << "showMainChatWindow1";
     mainChatWindow->show();
     setCentralWidget(mainChatWindow);
+
+    connect(mainChatWindow, &MainChatWindow::chatSelected, this, &MainWindow::showChatWindow);
 }
 
 void MainWindow::showChatWindow(const QString &chatName, const QString &chatId, const QString &recipientId) {
-    if (!chatWindow) {
-        chatWindow = new ChatWindow(chatName, chatId, recipientId, this);
-        connect(chatWindow, &ChatWindow::backToChatList, this, &MainWindow::showMainChatWindow);
-    } else {
-        chatWindow->setChatName(chatName);
+    if (chatWindow) {
+        delete chatWindow;
+
+        chatWindow = nullptr;
     }
+
+    // Создаем новый объект ChatWindow
+    chatWindow = new ChatWindow(chatName, chatId, recipientId, this);
+    connect(chatWindow, &ChatWindow::backToChatList, this, &MainWindow::showMainChatWindow);
+
+    // Устанавливаем центральный виджет на ChatWindow
     setCentralWidget(chatWindow);
 }

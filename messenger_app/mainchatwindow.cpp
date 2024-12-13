@@ -16,7 +16,9 @@
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
+#include <QSettings>
 #include "websocketclient.h"
+#include "loginform.h"
 
 MainChatWindow::MainChatWindow(QWidget *parent) : QWidget(parent) {
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
@@ -31,12 +33,14 @@ MainChatWindow::MainChatWindow(QWidget *parent) : QWidget(parent) {
     searchBar->setPlaceholderText("Поиск...");
     searchBar->setStyleSheet("QLineEdit { border: 1px solid #ccc; border-radius: 5px; padding: 5px; background: rgba(255, 255, 255, 0.8); }");
     mainLayout->addWidget(searchBar);
+    connect(searchBar, &QLineEdit::textChanged, this, &MainChatWindow::filterChats);
 
     chatList = new QListWidget(this);
     chatList->setStyleSheet("QListWidget { border: 1px solid #ccc; border-radius: 5px; padding: 5px; background: rgba(255, 255, 255, 0.8); }"
                             "QListWidget::item { padding: 10px; border: 1px solid #ddd; border-radius: 5px; margin: 5px; }"
                             "QListWidget::item:selected { background: #007BFF; color: white; border: 1px solid #0056b3; }");
     mainLayout->addWidget(chatList);
+
 
     addChatButton = new QPushButton("+", this);
     QFont font = addChatButton->font();
@@ -125,15 +129,22 @@ void MainChatWindow::onMessageReceived(const QString &message) {
     }
 }
 
+
 void MainChatWindow::createNewChat() {
     QNetworkAccessManager *manager = new QNetworkAccessManager(this);
     QUrl url(matching_url);
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    initGlobalSettings();
+
+    QString uid = globalSettings->value("uid").toString();
+    QString token = globalSettings->value("access_token").toString();
 
     QJsonObject jsonData;
-    QVariant value = settings.value("uid");
-    jsonData["uid"] = createNeChat;
+    jsonData["uid"] = uid;
+    jsonData["token"] = token;
+    //QMessageBox::information(this, "Cоздание нового чата", uid);
+    //QMessageBox::information(this, "Отправка токена", token);
 
     QJsonDocument doc(jsonData);
     QByteArray postData = doc.toJson();
@@ -141,51 +152,43 @@ void MainChatWindow::createNewChat() {
     QNetworkReply *reply = manager->post(request, postData);
     connect(reply, &QNetworkReply::finished, [=]() {
         if (reply->error() == QNetworkReply::NoError) {
-            QByteArray responseData = reply->readAll();
+            /*QByteArray responseData = reply->readAll();
             QJsonDocument responseDoc = QJsonDocument::fromJson(responseData);
-            QJsonObject responseObj = responseDoc.object();
-
-            if (responseObj.contains("access_token") && responseObj.contains("refresh_token")) {
-                QString accessToken = responseObj["access_token"].toString();
-                QString refreshToken = responseObj["refresh_token"].toString();
-                QString uid = responseObj["uid"].toString();
-
-                // Сохранение токенов
-                QSettings settings;
-                settings.setValue("access_token", accessToken);
-                settings.setValue("refresh_token", refreshToken);
-                settings.setValue("uid", uid);
-
-
-                // Переход в меню чатов
-                QMessageBox::information(this, "Успешный вход", "Вы успешно вошли!");
-                emit loginSuccessful();
-            } else {
-                QMessageBox::warning(this, "Ошибка входа", "Не удалось получить токены.");
-            }
+            QJsonObject responseObj = responseDoc.object();*/
+            QMessageBox::information(this, "Cоздание нового чата", "Запрос успешно отправлен, ожиидайте...");
         } else {
             int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             QByteArray responseData = reply->readAll();
             QJsonDocument responseDoc = QJsonDocument::fromJson(responseData);
             QJsonObject responseObj = responseDoc.object();
 
-            if (statusCode == 400) {
+            if (statusCode == 500) {
                 if (responseObj.contains("detail")) {
                     QString detail = responseObj["detail"].toString();
-                    if (detail == "Email is already used") {
-                        QMessageBox::warning(this, "Ошибка входа", "Неверная почта.");
-                    } else if (detail == "Incorrect password") {
-                        QMessageBox::warning(this, "Ошибка входа", "Неверный пароль.");
-                    } else {
-                        QMessageBox::warning(this, "Ошибка входа", "Неизвестная ошибка: " + detail);
-                    }
+                    QMessageBox::warning(this, "Создание нового чата", detail);
                 } else {
-                    QMessageBox::warning(this, "Ошибка входа", "Неизвестная ошибка.");
+                    QMessageBox::warning(this, "Создание нового чата", "Неизвестная ошибка.");
                 }
             } else {
-                QMessageBox::warning(this, "Ошибка входа", "Ошибка при отправке данных на сервер: " + reply->errorString());
+                QMessageBox::warning(this, "Создание нового чата", "Ошибка при отправке данных на сервер: " + reply->errorString());
             }
         }
         reply->deleteLater();
     });
+}
+
+void MainChatWindow::filterChats() {
+    QString searchText = searchBar->text().trimmed().toLower();
+
+    for (int i = 0; i < chatList->count(); ++i) {
+        QListWidgetItem *item = chatList->item(i);
+        QString chatName = item->text().toLower();
+
+        if (chatName.contains(searchText)) {
+            item->setHidden(false);
+        } else {
+            item->setHidden(true);
+        }
     }
+}
+

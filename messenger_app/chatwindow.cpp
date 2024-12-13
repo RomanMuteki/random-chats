@@ -55,7 +55,11 @@ void ChatWindow::sendMessage() {
         QString jsonString = QString::fromUtf8(doc.toJson(QJsonDocument::Compact));
         webSocketClient->sendMessage(jsonString);
 
-        messageDisplay->append(chatNameLabel->text() + ": " + messageContent);
+        QString formattedMessage = QString("<div style='background-color: #E0F0F6; border: 1px solid #F5C6CB; border-radius: 5px; padding: 10px; margin: 5px 0; text-align: right;'>"
+                                           "<strong>%1:</strong> %2"
+                                           "</div>")
+                                       .arg(chatNameLabel->text(), messageContent);
+        messageDisplay->append(formattedMessage);
         messageInput->clear();
     }
 }
@@ -70,7 +74,19 @@ void ChatWindow::onMessageReceived(const QString &message) {
         QString senderId = obj["sender_id"].toString();
 
         if (chatId == currentChatId) {
-            messageDisplay->append(senderId + ": " + content);
+            QString formattedMessage;
+            if (senderId == currentRecipientId) {
+                formattedMessage = QString("<div style='background-color: #E0F0F6; border: 1px solid #C3E6CB; border-radius: 5px; padding: 10px; margin: 5px 0;'>"
+                                           "<strong>%1:</strong> %2"
+                                           "</div>")
+                                       .arg(senderId, content);
+            } else {
+                formattedMessage = QString("<div style='background-color: #E0F0F6; border: 1px solid #F5C6CB; border-radius: 5px; padding: 10px; margin: 5px 0; text-align: right;'>"
+                                           "<strong>%1:</strong> %2"
+                                           "</div>")
+                                       .arg(senderId, content);
+            }
+            messageDisplay->append(formattedMessage);
         }
     }
 }

@@ -15,7 +15,7 @@ class MainChatWindow : public QWidget {
 
 public:
     explicit MainChatWindow(QWidget *parent = nullptr);
-    QString matching_url = "http://192.168.0.141:8350/matching";
+    QString matching_url = "http://212.34.139.173:8500/matching";
 
 signals:
     void chatSelected(const QString &chatName, const QString &chatId, const QString &recipientId);
@@ -24,6 +24,8 @@ private slots:
     void onMessageReceived(const QString &message);
     void fetchChats();
     void updateChatList(const QJsonArray &chats);
+    void createNewChat();
+    void filterChats();
 
 private:
     QLineEdit *searchBar;
