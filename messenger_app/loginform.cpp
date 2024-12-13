@@ -29,7 +29,7 @@ LoginForm::LoginForm(QWidget *parent) : QWidget(parent) {
     titleLabel->setStyleSheet("font-size: 24px; font-weight: bold;");
     layout->addWidget(titleLabel);
 
-    QLabel *usernameLabel = new QLabel("Имя пользователя или e-mail", this);
+    QLabel *usernameLabel = new QLabel("E-mail", this);
     usernameLabel->setStyleSheet("font-size: 16px;");
     layout->addWidget(usernameLabel);
 
@@ -54,30 +54,34 @@ LoginForm::LoginForm(QWidget *parent) : QWidget(parent) {
     registerButton->setStyleSheet("background-color: #6C757D; color: white; border: none; border-radius: 5px; padding: 10px;");
     layout->addWidget(registerButton);
 
-    connect(registerButton, &QPushButton::clicked, this, &LoginForm::registerClicked);
+    connect(registerButton, &QPushButton::clicked, this, &LoginForm::onRegisterClicked);
     connect(loginButton, &QPushButton::clicked, this, &LoginForm::onLoginClicked);
 
     setLayout(layout);
+}
+
+void LoginForm::onRegisterClicked() {
+    emit goToRegister();
 }
 
 void LoginForm::onLoginClicked() {
     QString email = usernameInput->text();
     QString password = passwordInput->text();
 
-    //дефолтные данные по которым можно войти в приложение
-    /*const QString predefinedUsername = "admin";
+    /*дефолтные данные по которым можно войти в приложение
+    const QString predefinedUsername = "admin";
     const QString predefinedPassword = "admin";
 
     if (email == predefinedUsername && password == predefinedPassword) {
         emit loginSuccessful();
     } else {
         QMessageBox::warning(this, "Ошибка входа", "Неверное имя пользователя или пароль.");
-    }*/
+    }
 
     if (email.isEmpty() || password.isEmpty()) {
         QMessageBox::warning(this, "Ошибка входа", "Пожалуйста, заполните все поля.");
         return;
-    }
+    }*/
 
     //QMessageBox::information(this, "Успешный вход", "Вы успешно вошли!");
 

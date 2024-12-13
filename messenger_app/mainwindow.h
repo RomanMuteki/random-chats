@@ -18,7 +18,7 @@ private slots:
     void showRegisterForm();
     void showLoginForm();
     void showMainChatWindow();
-    void showChatWindow(const QString &chatName);
+    void showChatWindow(const QString &chatName, const QString &chatId, const QString &recipientId);
 
 private:
     LoginForm *loginForm;

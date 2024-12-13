@@ -27,7 +27,7 @@ RegisterForm::RegisterForm(QWidget *parent) : QWidget(parent) {
     titleLabel->setStyleSheet("font-size: 24px; font-weight: bold;");
     layout->addWidget(titleLabel);
 
-    QLabel *emailLabel = new QLabel("E-mail или номер телефона", this);
+    QLabel *emailLabel = new QLabel("E-mail", this);
     emailLabel->setStyleSheet("font-size: 16px;");
     layout->addWidget(emailLabel);
 
@@ -112,10 +112,14 @@ RegisterForm::RegisterForm(QWidget *parent) : QWidget(parent) {
     loginButton->setStyleSheet("background-color: #6C757D; color: white; border: none; border-radius: 5px; padding: 10px;");
     layout->addWidget(loginButton);
 
-    connect(loginButton, &QPushButton::clicked, this, &RegisterForm::loginClicked);
+    connect(loginButton, &QPushButton::clicked, this, &RegisterForm::onLoginClicked);
     connect(registerButton, &QPushButton::clicked, this, &RegisterForm::onRegisterClicked);
 
     setLayout(layout);
+}
+
+void RegisterForm::onLoginClicked() {
+    emit loginClicked();
 }
 
 void RegisterForm::onRegisterClicked() {

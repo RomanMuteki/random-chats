@@ -15,14 +15,15 @@ class LoginForm : public QWidget {
 
 public:
     explicit LoginForm(QWidget *parent = nullptr);
-    QString server_url = "http://192.168.35.180:8000/login";
+    QString server_url = "http://192.168.0.141:8300/login";
 
 signals:
-    void registerClicked();
+    void goToRegister();
     void loginSuccessful();
 
 private slots:
     void onLoginClicked();
+    void onRegisterClicked();
 
 private:
     QLineEdit *usernameInput;
