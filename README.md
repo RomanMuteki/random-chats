@@ -3,19 +3,15 @@ A simple application to let people chat with random person all around the world 
 Made as an educational project during the first semester of second grade.
 It is something between chat-roulette and classical messenger.
 ## Built with micro-service architecture
-Here will be scheme
+![Архитектура - 'Найди друга'-3](https://github.com/user-attachments/assets/44b267e4-2a1f-4c18-ac4e-3c7fb1ca7313)
 ## What is done:
-1) WIP
-2) WIP
+1) API Gateway
+2) Auth service (Python, FastAPI, PostgreSQL)
+3) Load balancers (Python)
+4) Matching service (Python, FastAPI, Redis)
+5) Message service (Python, FastAPI, MongoDB)
+6) WebSocket handler (Python)
+7) WebSocket manager (Python, FastAPI, Redis)
 ## What is in progress:
-1) Registration + authorisation + authentification service (Python, Postgres)
-2) Websocket handler
-3) Websocket manager (Redis)
-4) Application (PyQT)
-## Things to be done in future:
-1) Messeging service 
-2) Matching service
-3) Push-notification service 
-4) Asset and Object storage for users' files (optional)
-5) Kubernetes
+1) Application (Qt C++)
 ## Another information
