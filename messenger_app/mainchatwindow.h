@@ -2,7 +2,7 @@
 #define MAINCHATWINDOW_H
 
 #include <QWidget>
-#include <QLineEdit>
+#include <QLabel>
 #include <QListWidget>
 #include <QPushButton>
 #include <QVBoxLayout>
@@ -23,12 +23,17 @@ signals:
 private slots:
     void onMessageReceived(const QString &message);
     void fetchChats();
-    void updateChatList(const QJsonArray &chats);
+    //void updateChatList(const QJsonArray &chats);
+    void allChatsHendler(const QJsonArray &chats);
+    void allMessagesHendller(const QJsonArray &messages);
+    void newChatsHendler(const QJsonArray &newChats);
     void createNewChat();
     void filterChats();
+    void getWebSocketHandler();
+    void updateMessagesForChat(const QString &chatId, const QJsonArray &messages);
 
 private:
-    QLineEdit *searchBar;
+    QLabel *searchBar;
     QListWidget *chatList;
     QPushButton *addChatButton;
     WebSocketClient *webSocketClient;

@@ -68,26 +68,33 @@ void MainWindow::showLoginForm() {
 }
 
 void MainWindow::showMainChatWindow() {
-    qDebug() << "showMainChatWindow";
     loginForm->hide();
-    qDebug() << "showMainChatWindow1";
+    mainChatWindow = new MainChatWindow(this);
     mainChatWindow->show();
+    qDebug() << "showMainChatWindow";
     setCentralWidget(mainChatWindow);
 
     connect(mainChatWindow, &MainChatWindow::chatSelected, this, &MainWindow::showChatWindow);
 }
 
 void MainWindow::showChatWindow(const QString &chatName, const QString &chatId, const QString &recipientId) {
-    if (chatWindow) {
+    //if (chatWindow) {
+    if (chatWindow != nullptr) {
         delete chatWindow;
-
         chatWindow = nullptr;
     }
 
-    // Создаем новый объект ChatWindow
+
     chatWindow = new ChatWindow(chatName, chatId, recipientId, this);
     connect(chatWindow, &ChatWindow::backToChatList, this, &MainWindow::showMainChatWindow);
 
-    // Устанавливаем центральный виджет на ChatWindow
     setCentralWidget(chatWindow);
 }
+  /*  QString handlerUrl = globalSettings->value("websocket_handler_url").toString();
+    if (!handlerUrl.isEmpty()) {
+        chatWindow->connectToWebSocket(handlerUrl);
+    } else {
+        qDebug() << "Ошибка: handler_url не найден.";
+    }
+}*/
+

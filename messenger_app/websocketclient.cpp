@@ -20,9 +20,10 @@ WebSocketClient::~WebSocketClient() {
     m_pingTimer->stop();
 }
 
-void WebSocketClient::connectToServer(const QUrl &url) {
+void WebSocketClient::connectToServer(const QUrl &url, const QString &uid, const QString &token) {
     m_url = url;
-    m_webSocket->open(m_url);
+    QString wsUrl = QString("%1/ws/%2/%3").arg(m_url.toString(), uid, token);
+    m_webSocket->open(wsUrl);
 }
 
 void WebSocketClient::sendMessage(const QString &message) {
@@ -69,3 +70,5 @@ void WebSocketClient::sendPing() {
         qDebug() << "WebSocket is not connected, cannot send ping.";
     }
 }
+
+

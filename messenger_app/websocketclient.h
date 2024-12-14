@@ -12,7 +12,7 @@ public:
     explicit WebSocketClient(QObject *parent = nullptr);
     ~WebSocketClient();
 
-    void connectToServer(const QUrl &url);
+    void connectToServer(const QUrl &url, const QString &uid, const QString &token);
     void sendMessage(const QString &message);
 
 signals:
@@ -24,6 +24,9 @@ private slots:
     void onConnected();
     void onDisconnected();
     void onTextMessageReceived(const QString &message);
+
+
+public slots:
     void sendPing();
 
 private:

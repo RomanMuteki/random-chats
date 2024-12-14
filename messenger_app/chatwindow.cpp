@@ -39,7 +39,7 @@ ChatWindow::ChatWindow(const QString &chatName, const QString &chatId, const QSt
     webSocketClient = new WebSocketClient(this);
     connect(webSocketClient, &WebSocketClient::messageReceived, this, &ChatWindow::onMessageReceived);
 
-    webSocketClient->connectToServer(QUrl("ws://192.168.243.187:8001/ws/user1"));
+    //webSocketClient->connectToServer(QUrl("ws://192.168.243.187:8001/ws/user1"));
 }
 
 void ChatWindow::sendMessage() {
@@ -94,3 +94,19 @@ void ChatWindow::onMessageReceived(const QString &message) {
 void ChatWindow::setChatName(const QString &chatName) {
     chatNameLabel->setText(chatName);
 }
+
+void ChatWindow::connectToWebSocket() {
+    QString uid = globalSettings->value("uid").toString();
+    QString token = globalSettings->value("access_token").toString();
+
+    // Получаем WebSocket handler URL из глобальных настроек
+    QString handlerUrl = globalSettings->value("websocket_handler_url").toString();
+
+    if (!handlerUrl.isEmpty()) {
+        // Подключаемся к WebSocket серверу с использованием uid и token
+        webSocketClient->connectToServer(QUrl(handlerUrl), uid, token);
+    } else {
+        qDebug() << "Ошибка: handler_url не найден.";
+    }
+}
+
