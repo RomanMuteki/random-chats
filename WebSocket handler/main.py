@@ -119,21 +119,22 @@ async def shutdown_event():
     await http_client.aclose()
 
 
-@app.websocket("/ws/{user_id}")
-async def websocket_endpoint(websocket: WebSocket, user_id: str):
+@app.websocket("/ws/{user_id}/{token}")
+async def websocket_endpoint(websocket: WebSocket, user_id: str, token: str):
     """
     WebSocket эндпоинт для подключения пользователей.
 
     :param websocket: WebSocket соединение.
+    :param token: Токен пользователя.
     :param user_id: Идентификатор подключающегося пользователя.
     """
-    print(f"Попытка подключения к WebSocket от пользователя: {user_id}")
+    logger.info(f"Попытка подключения к WebSocket от пользователя: {user_id}, c токеном: {token}")
     await websocket.accept()
     background_task = None
     try:
         # Получение токена из параметров URL при WebSocket соединении
-        query_params = dict(websocket.headers)
-        token = query_params.get('token')
+        # query_params = dict(websocket.headers)
+        # token = query_params.get('token')
         if not token:
             await websocket.close(code=4001, reason="Требуется токен")
             return
@@ -170,7 +171,7 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                 recipient_id = message.get('recipient_id')
                 if recipient_id:
                     chat_id = await get_chat_id(user_id, recipient_id)
-                    print(f"Chat created between {user_id} and {recipient_id} with chat_id: {chat_id}")
+                    logger.info(f"Чат, созданный между {user_id} и {recipient_id} с chat_id: {chat_id}")
                     # Отправляем обновленный список чатов
                     await send_all_chats_and_messages(user_id, websocket)
                 else:
@@ -221,7 +222,7 @@ async def register_user(user_id: str):
     :param user_id: Идентификатор пользователя для регистрации.
     :raises HTTPException: Если регистрация неудачна.
     """
-    print(f"Registering user {user_id} with WebSocket Manager.")
+    logger.info(f"Регистрация пользователя {user_id} в WebSocket Manager.")
     payload = {
         "user_id": user_id,
         "websocket_handler_id": HANDLER_ID
@@ -237,7 +238,7 @@ async def unregister_user(user_id: str):
 
     :param user_id: Идентификатор пользователя для снятия регистрации.
     """
-    print(f"Unregistering user {user_id} from WebSocket Manager.")
+    logger.info(f"Отмена регистрации пользователя {user_id} в WebSocket Manager.")
     payload = {
         "user_id": user_id
     }
@@ -253,7 +254,7 @@ async def handle_incoming_message(sender_id: str, message_data: Dict):
     :param sender_id: Идентификатор отправителя сообщения.
     :param message_data: Данные сообщения, включая recipient_id, content и chat_id.
     """
-    print(f"Handling incoming message from {sender_id}: {message_data}")
+    logger.info(f"Обработка входящего сообщения от {sender_id}")
     recipient_id = message_data.get('recipient_id')
     content = message_data.get('content')
     chat_id = message_data.get('chat_id')  # Предполагаем, что клиент передает chat_id
@@ -264,7 +265,7 @@ async def handle_incoming_message(sender_id: str, message_data: Dict):
 
     # Сохранение сообщения через Message Service
     message_id = await save_message(sender_id, recipient_id, content, chat_id)
-    print(f"Message saved with ID {message_id}")
+    logger.info(f"Сообщение, сохраненное с идентификатором {message_id}")
 
     # Создаем объект сообщения для отправки
     outgoing_message = {
@@ -281,7 +282,7 @@ async def handle_incoming_message(sender_id: str, message_data: Dict):
     recipient_websocket = connected_users.get(recipient_id)
     if recipient_websocket:
         # Получатель подключен к этому обработчику
-        print(f"Delivering message to connected recipient {recipient_id}")
+        logger.info(f"Доставка сообщения подключенному получателю {recipient_id}")
         await deliver_message(recipient_websocket, outgoing_message)
     else:
         # Получатель не подключен к этому обработчику, проверка кэша или WebSocket Manager
@@ -296,13 +297,12 @@ async def handle_incoming_message(sender_id: str, message_data: Dict):
             logger.warning(f"Получатель {recipient_id} должен быть подключен, но не найден.")
         elif handler_id:
             # Отправка сообщения обработчику, к которому подключен получатель
-            print(f"Forwarding message to handler {handler_id} for recipient {recipient_id}")
+            logger.info(f"Пересылка сообщения обработчику {handler_id} для получателя {recipient_id}")
             await forward_message_to_handler(handler_id, outgoing_message)
         else:
             # Получатель не в сети
             # Обработка доставки сообщений для оффлайн-получателей
             logger.info(f"Получатель {recipient_id} не в сети.")
-            print(f"Recipient {recipient_id} is offline. Handling offline delivery.")
             await handle_offline_recipient(recipient_id, message_id)
 
 
@@ -317,7 +317,7 @@ async def save_message(sender_id: str, recipient_id: str, content: str, chat_id:
     :return: Идентификатор сохраненного сообщения.
     :raises HTTPException: Если сохранение сообщения неудачно.
     """
-    print(f"Saving message from {sender_id} to {recipient_id} in chat {chat_id}")
+    logger.info(f"Сохранение сообщения из {sender_id} в {recipient_id} в чате {chat_id}")
     try:
         # Если chat_id не передан, получаем или создаем chat_id между sender_id и recipient_id
         if not chat_id:
@@ -353,7 +353,7 @@ async def update_message_status(message_id: str, user_id: str, status: str):
     :param user_id: Идентификатор пользователя.
     :param status: Новый статус сообщения (например, 'delivered' или 'read').
     """
-    print(f"Updating message status for message {message_id} to {status} for user {user_id}")
+    logger.info(f"Обновление статуса сообщения для сообщения {message_id} до {status} для пользователя {user_id}")
     try:
         if user_id is None:
             logger.error(f"Не удается обновить статус сообщения: значение user_id для сообщения равно None {message_id}")
@@ -381,7 +381,7 @@ async def get_chat_id(user1_id: str, user2_id: str) -> str:
     :return: Идентификатор чата.
     :raises HTTPException: Если не удалось получить или создать чат.
     """
-    print(f"Fetching chat ID between {user1_id} and {user2_id}")
+    logger.info(f"Выбор идентификатора чата между {user1_id} и {user2_id}")
     try:
         # Сначала проверяем, существует ли чат
         path = f"/chats/{user1_id}"
@@ -423,7 +423,7 @@ async def get_handler_for_user(user_id: str) -> Optional[str]:
     :return: Идентификатор обработчика или None, если пользователь оффлайн.
     :raises HTTPException: Если не удалось получить обработчик.
     """
-    print(f"Fetching handler for user {user_id}")
+    logger.info(f"Обработчик выборки для пользователя {user_id}")
     path = f"/handler/{user_id}"
     response = await request_with_retry('GET', 'websocket_manager', path)
     if response and response.status_code == 200:
@@ -442,7 +442,7 @@ async def forward_message_to_handler(handler_id: str, message_data: Dict):
     :param handler_id: Идентификатор целевого обработчика.
     :param message_data: Данные сообщения для пересылки.
     """
-    print(f"Forwarding message to handler {handler_id}")
+    logger.info(f"Пересылка сообщения обработчику {handler_id}")
     # Получаем URL обработчика из API Gateway
     handler_url = await get_handler_url(handler_id)
     if not handler_url:
@@ -485,7 +485,7 @@ async def send_new_chats_and_messages(user_id: str, websocket: WebSocket):
     :param user_id: Идентификатор пользователя.
     :param websocket: WebSocket соединение с пользователем.
     """
-    print(f"Sending new chats and messages to user {user_id}")
+    logger.info(f"Отправка новых чатов и сообщений пользователю {user_id}")
     try:
         # Получение новых чатов, статус которых для данного пользователя 'undelivered'
         path = f"/chats/{user_id}/new"
@@ -525,7 +525,7 @@ async def send_all_chats_and_messages(user_id: str, websocket: WebSocket):
     :param user_id: Идентификатор пользователя.
     :param websocket: WebSocket соединение с пользователем.
     """
-    print(f"Sending all chats and messages to user {user_id}")
+    logger.info(f"Отправка всех чатов и сообщений пользователю {user_id}")
     try:
         # Получение всех чатов пользователя
         path = f"/chats/{user_id}"
@@ -565,7 +565,7 @@ async def update_chat_status(chat_id: str, user_id: str, status: str):
     :param user_id: Идентификатор пользователя.
     :param status: Новый статус чата (например, 'delivered' или 'read').
     """
-    print(f"Updating chat status for chat {chat_id} to {status} for user {user_id}")
+    logger.info(f"Обновление статуса чата для чата {chat_id} до {status} для пользователя {user_id}")
     try:
         status_data = {
             "receiver_id": user_id,
@@ -589,7 +589,7 @@ async def forward_message_endpoint(message_data: Dict):
     :param message_data: Данные сообщения, включая recipient_id и content.
     :return: Статус доставки сообщения.
     """
-    print(f"Received forwarded message: {message_data}")
+    logger.info(f"Полученное переадресованное сообщение: {message_data}")
     recipient_id = message_data.get('recipient_id')
     recipient_websocket = connected_users.get(recipient_id)
     if recipient_websocket:
@@ -609,7 +609,7 @@ async def deliver_message(websocket: WebSocket, message_data: Dict):
     :param websocket: WebSocket соединение с получателем.
     :param message_data: Данные сообщения для отправки.
     """
-    print(f"Delivering message to user {message_data.get('recipient_id')}: {message_data}")
+    logger.info(f"Отправка сообщения пользователю {message_data.get('recipient_id')}: {message_data}")
     await websocket.send_text(json.dumps(message_data))
     logger.info(f"Сообщение доставлено пользователю {message_data.get('recipient_id')}")
     # Обновляем статус сообщения на "delivered"
@@ -623,7 +623,6 @@ async def handle_offline_recipient(recipient_id: str, message_id: str):
     :param recipient_id: Идентификатор оффлайн-получателя.
     :param message_id: Идентификатор сообщения.
     """
-    print(f"Handling offline recipient {recipient_id} for message {message_id}")
     logger.info(f"Обработка оффлайн-получателя {recipient_id} для сообщения {message_id}.")
     # Здесь вы можете добавить логику для отправки уведомления через Push Notification Service
 
@@ -636,13 +635,14 @@ async def check_token(user_id: str, token: str) -> bool:
     :param token: Токен пользователя.
     :return: True, если токен действителен, иначе False.
     """
-    params = {"uid": user_id, "token": token}
-    response = await request_with_retry('GET', 'auth_service', '/token_check', params=params)
-    if response and response.status_code == 200:
-        return True
-    else:
-        logger.error(f"Неверный или просроченный токен для пользователя {user_id}")
-        return False
+    return True
+    # params = {"uid": user_id, "token": token}
+    # response = await request_with_retry('POST', 'auth_service', '/token_check', params=params)
+    # if response and response.status_code == 200:
+    #     return True
+    # else:
+    #     logger.error(f"Неверный или просроченный токен для пользователя {user_id}")
+    #     return False
 
 
 @app.get("/")

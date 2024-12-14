@@ -9,6 +9,8 @@ from typing import Dict, List, Optional
 from urllib.parse import urljoin
 from fastapi.responses import HTMLResponse
 import logging
+from pydantic import BaseModel
+
 
 log_file = "service.log"
 
@@ -64,6 +66,11 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger("API Gateway")
 
 
+class CreateRequest(BaseModel):
+    token: str
+    uid: str
+
+
 async def get_work_instance(service_name: str) -> Dict or None:
     """
     Получает рабочий экземпляр сервиса с использованием балансировки нагрузки, проверяя доступность каждого экземпляра.
@@ -87,16 +94,16 @@ async def get_work_instance(service_name: str) -> Dict or None:
 
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(url, timeout=5)
+                response = await client.get(url, timeout=1.0)
                 if response.status_code == 200:
                     # Если сервис отвечает статусом 200, возвращаем его
                     service['pointer'] = (start_pointer + attempts + 1) % num_instances
                     logger.info(f"Экземпляр {instance['url']} сервиса {service_name} доступен")
                     return instance
         except Exception as e:
-            logger.error(f"Ошибка при проверке экземпляра {instance['url']} сервиса {service_name}: {e}")
+            attempts += 1
+            # logger.error(f"Ошибка при проверке экземпляра {instance['url']} сервиса {service_name}: {e}")
             continue  # Если ошибка (например, сервис не доступен), продолжаем попытки
-
         attempts += 1
 
     logger.error(f"Ни один экземпляр сервиса {service_name} не работает")
@@ -106,10 +113,6 @@ async def get_work_instance(service_name: str) -> Dict or None:
 async def validate_token(token: str, uid: str) -> bool:
     """
     Проверяет токен, перенаправляя его в Auth Service.
-
-    :param token: Токен пользователя.
-    :param uid: Уникальный идентификатор пользователя.
-    :return: True, если токен действителен, иначе False.
     """
     logger.info(f"Валидация токена для пользователя {uid} с токеном {token}")
     service_name = 'auth_service'
@@ -118,15 +121,15 @@ async def validate_token(token: str, uid: str) -> bool:
     while attempts < max_attempts:
         instance = await get_work_instance(service_name)
         url = urljoin(instance['url'], '/token_check')
-        params = {'token': token, 'uid': uid}
+        json_data = {'token': token, 'uid': uid}
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(url, params=params, timeout=5)
+                response = await client.post(url, json=json_data)
                 if response.status_code == 200:
                     logger.info(f"Токен пользователя {uid} действителен")
                     return True
                 else:
-                    logger.warning(f"Токен пользователя {uid} недействителен")
+                    logger.warning(f"Токен пользователя {uid} недействителен. Детали: {response.json().get('detail')}")
                     return False
         except Exception as e:
             logger.error(f"Ошибка при валидации токена пользователя {uid}: {e}")
@@ -135,17 +138,24 @@ async def validate_token(token: str, uid: str) -> bool:
     return False
 
 
-# Эндпоинт для клиентов, чтобы получить доступный WebSocket Handler
-@app.get("/get_websocket_handler")
-async def get_websocket_handler(token: str = Header(None), uid: str = Header(None)):
+@app.post("/get_websocket_handler")
+async def get_websocket_handler(request: Request):
     """
     Предоставляет доступный WebSocket Handler клиенту.
 
-    :param token: Токен пользователя, передается в заголовках.
-    :param uid: Уникальный идентификатор пользователя, передается в заголовках.
+    :param request: :param request: Объект запроса FastAPI.
     :return: JSON с URL и ID обработчика.
     :raises HTTPException: Если аутентификация не удалась.
     """
+    try:
+        request_body = await request.json()
+
+        token = request_body.get('token')
+        uid = request_body.get('uid')
+    except json.JSONDecodeError:
+        logger.error("Ошибка при декодировании JSON тела запроса")
+        raise HTTPException(status_code=400, detail="Неправильный формат JSON тела запроса")
+
     logger.info(f"Получение доступного WebSocket Handler для пользователя {uid}")
     if not token or not uid:
         logger.error("Отсутствуют токен или UID в запросе для получения WebSocket Handler")
@@ -238,16 +248,23 @@ async def token_check(token: str, uid: str):
 
 # Прокси-эндпоинты для Matching Service
 @app.post("/matching")
-async def matching(request: Request, token: str = Header(None), uid: str = Header(None)):
+async def matching(request: Request):
     """
     Проксирует запрос на подбор пары в Matching Service после аутентификации пользователя.
 
     :param request: Объект запроса FastAPI.
-    :param token: Токен пользователя, передается в заголовках.
-    :param uid: Уникальный идентификатор пользователя, передается в заголовках.
     :return: Ответ от Matching Service.
     :raises HTTPException: Если аутентификация не удалась.
     """
+    try:
+        request_body = await request.json()
+
+        token = request_body.get('token')
+        uid = request_body.get('uid')
+    except json.JSONDecodeError:
+        logger.error("Ошибка при декодировании JSON тела запроса")
+        raise HTTPException(status_code=400, detail="Неправильный формат JSON тела запроса")
+
     logger.info(f"Запрос на подбор пары для пользователя {uid}")
     if not token or not uid:
         logger.error("Отсутствуют токен или UID при подборе пары")
@@ -289,7 +306,7 @@ async def proxy_request(request: Request, service_name: str):
         content = await request.body()
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.request(method, url, headers=headers, content=content, timeout=15)
+                response = await client.request(method, url, headers=headers, content=content, timeout=4)
                 logger.info(f"Успешный проксируемый запрос в {service_name} на {url} завершен")
                 return Response(
                     status_code=response.status_code,

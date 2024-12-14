@@ -200,11 +200,11 @@ async def create_chat(chat: ChatCreate):
             if existing_chat:
                 raise HTTPException(status_code=400, detail="Чат между этими участниками уже существует")
 
-        participants_names = [await get_user_name_by_id(user_id) for user_id in chat.participants]
+        # participants_names = [await get_user_name_by_id(user_id) for user_id in chat.participants]
 
         chat_dict = chat.dict()
         chat_dict["created_at"] = datetime.utcnow()
-        chat_dict["participants_names"] = participants_names  # Сохраняем имена участников
+        # chat_dict["participants_names"] = participants_names  # Сохраняем имена участников
         # Инициализируем статус доставки для каждого участника как 'undelivered'
         chat_dict["status"] = {participant: "undelivered" for participant in chat.participants}
 

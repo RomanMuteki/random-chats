@@ -165,7 +165,7 @@ async def registration(request: RegistrationRequest, db=Depends(get_db_connectio
             INSERT INTO users2 (uid, email, password, username, sex, age, preffered_age, preffered_sex, avatar_code, access_token, refresh_token)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         """
-        await db.execute(insert_query, uid, request.email, hashed_password, request.username, request.sex,
+        await db.execute(insert_query, uid, request.email, hashed_password, request.username1, request.sex,
                          request.age, request.preferred_age, request.preferred_sex, avatar, None, None)
 
         logger.info(f"Пользователь зарегистрирован: {request.email}")
@@ -259,7 +259,7 @@ async def authentification(request: TokenAuthentification, db=Depends(get_db_con
         raise HTTPException(status_code=400, detail="Invalid token. Relogin is required")
 
 
-@app.get("/token_check")
+@app.post("/token_check")
 async def token_validity_check(request: ServiceCheckToken, db=Depends(get_db_connection)):
     """
     Проверяет валидность токена.

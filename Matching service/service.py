@@ -264,5 +264,5 @@ async def get_logs():
 
 
 if __name__ == '__main__':
-    logger.info("Запуск сервиса Matching Service на {}:{}", config['server_url'], config['server_port'])
+    logger.info(f"Запуск сервиса Matching Service на {config['server_url']}:{config['server_port']}")
     uvicorn.run(app, host=config['server_url'], port=config['server_port'])

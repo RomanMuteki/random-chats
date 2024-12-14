@@ -3,5 +3,6 @@
 	"redis_port": "port of redis server",
 	"auth_service_url": "address of authentification",
 	"server_url": "url for this server",
-	"server_port": 0000
+	"server_port": 8400,
+	"api_gateway_url": 5
 }

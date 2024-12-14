@@ -30,7 +30,6 @@ WebSocket Handler обеспечивает взаимодействие межд
      ```json
      {
          "type": "create_chat",
-         "token": "token",
          "recipient_id": "user2"
      }
      ```
@@ -44,7 +43,6 @@ WebSocket Handler обеспечивает взаимодействие межд
      ```json
      {
          "type": "send_message",
-         "token": "token",
          "recipient_id": "user2",
          "content": "Привет!",
          "chat_id": "chat123"
@@ -62,7 +60,6 @@ WebSocket Handler обеспечивает взаимодействие межд
      ```json
      {
          "type": "fetch_chats",
-         "token": "token"
      }
      ```
 
