@@ -7,6 +7,7 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QVBoxLayout>
+#include <QSettings>
 #include "websocketclient.h"
 
 class ChatWindow : public QWidget {
@@ -15,6 +16,7 @@ class ChatWindow : public QWidget {
 public:
     explicit ChatWindow(const QString &chatName, const QString &chatId, const QString &recipientId, QWidget *parent = nullptr);
     void setChatName(const QString &chatName);
+    //void connectToWebSocket(const QString &handlerUrl);
 
 signals:
     void backToChatList();
@@ -25,6 +27,7 @@ private slots:
     //void onBackToChatList();
 
 private:
+    void connectToWebSocket();
     QLabel *chatNameLabel;
     QTextEdit *messageDisplay;
     QLineEdit *messageInput;
@@ -34,6 +37,7 @@ private:
     QUrl serverUrl;
     QString currentChatId;
     QString currentRecipientId;
+    QSettings *globalSettings;
 };
 
 #endif // CHATWINDOW_H

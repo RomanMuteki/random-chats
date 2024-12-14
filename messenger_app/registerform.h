@@ -15,7 +15,7 @@ class RegisterForm : public QWidget {
 
 public:
     explicit RegisterForm(QWidget *parent = nullptr);
-    QString server_url = "http://192.168.0.141:8300/register";
+    QString server_url = "http://212.34.139.173:8500/register";
 
 signals:
     void loginClicked();

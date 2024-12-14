@@ -2,7 +2,7 @@
 #define MAINCHATWINDOW_H
 
 #include <QWidget>
-#include <QLineEdit>
+#include <QLabel>
 #include <QListWidget>
 #include <QPushButton>
 #include <QVBoxLayout>
@@ -15,7 +15,7 @@ class MainChatWindow : public QWidget {
 
 public:
     explicit MainChatWindow(QWidget *parent = nullptr);
-    QString matching_url = "http://192.168.0.141:8350/matching";
+    QString matching_url = "http://212.34.139.173:8500/matching";
 
 signals:
     void chatSelected(const QString &chatName, const QString &chatId, const QString &recipientId);
@@ -23,10 +23,17 @@ signals:
 private slots:
     void onMessageReceived(const QString &message);
     void fetchChats();
-    void updateChatList(const QJsonArray &chats);
+    //void updateChatList(const QJsonArray &chats);
+    void allChatsHendler(const QJsonArray &chats);
+    void allMessagesHendller(const QJsonArray &messages);
+    void newChatsHendler(const QJsonArray &newChats);
+    void createNewChat();
+    void filterChats();
+    void getWebSocketHandler();
+    void updateMessagesForChat(const QString &chatId, const QJsonArray &messages);
 
 private:
-    QLineEdit *searchBar;
+    QLabel *searchBar;
     QListWidget *chatList;
     QPushButton *addChatButton;
     WebSocketClient *webSocketClient;

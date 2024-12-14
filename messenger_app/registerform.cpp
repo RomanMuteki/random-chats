@@ -89,16 +89,15 @@ RegisterForm::RegisterForm(QWidget *parent) : QWidget(parent) {
     genderPrefCombo = new QComboBox(this);
     genderPrefCombo->addItem("Мужской");
     genderPrefCombo->addItem("Женский");
-    genderPrefCombo->addItem("Любой");
     preferenceLayout->addWidget(genderPrefLabel);
     preferenceLayout->addWidget(genderPrefCombo);
 
     QLabel *agePrefLabel = new QLabel("Возраст:", this);
     agePrefCombo = new QComboBox(this);
     agePrefCombo->addItem("16-18");
-    agePrefCombo->addItem("18-21");
-    agePrefCombo->addItem("21-25");
-    agePrefCombo->addItem("25+");
+    agePrefCombo->addItem("19-23");
+    agePrefCombo->addItem("24-30");
+    agePrefCombo->addItem("31-100");
     preferenceLayout->addWidget(agePrefLabel);
     preferenceLayout->addWidget(agePrefCombo);
 
@@ -134,9 +133,9 @@ void RegisterForm::onRegisterClicked() {
     QString age = ageInput -> text();
     QString gender;
     if (maleRadio->isChecked()) {
-        gender = "Мужской";
+        gender = "male";
     } else if (femaleRadio->isChecked()) {
-        gender = "Женский";
+        gender = "female";
     }
     QString genderPreference = genderPrefCombo->currentText();
     QString agePreference = agePrefCombo->currentText();

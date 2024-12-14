@@ -13,6 +13,12 @@
 #include <QSettings>
 #include <QPalette>
 #include <QColor>
+#include <QCoreApplication>
+#include <QSettings>
+#include <QString>
+#include <QStandardPaths>
+#include <QDir>
+#include <QDebug>
 
 LoginForm::LoginForm(QWidget *parent) : QWidget(parent) {
     QVBoxLayout *layout = new QVBoxLayout(this);
@@ -58,11 +64,95 @@ LoginForm::LoginForm(QWidget *parent) : QWidget(parent) {
     connect(loginButton, &QPushButton::clicked, this, &LoginForm::onLoginClicked);
 
     setLayout(layout);
+    checkAndValidateTokens();
+}
+
+void LoginForm::checkAndValidateTokens() {
+    if (checkTokens()) {
+        validateTokens();
+    }
+}
+
+bool LoginForm::checkTokens() {
+    initGlobalSettings();
+    QString accessToken = globalSettings->value("access_token").toString();
+    QString refreshToken = globalSettings->value("refresh_token").toString();
+
+    if (accessToken.isEmpty() || refreshToken.isEmpty() || accessToken == refreshToken) {
+        return false;
+    }
+    return true;
+}
+
+void LoginForm::validateTokens() {
+    QSettings settings;
+    QString access_token = globalSettings->value("access_token").toString();
+    QString refresh_token = globalSettings->value("refresh_token").toString();
+
+    // Отправляем токены на сервер для проверки
+    QNetworkAccessManager *manager = new QNetworkAccessManager(this);
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+    QJsonObject jsonData;
+
+    jsonData["token"] = access_token;
+    QJsonDocument doc(jsonData);
+    QByteArray postData = doc.toJson();
+
+    QNetworkReply *reply = manager->post(request, postData);
+    connect(reply, &QNetworkReply::finished, [=]() {
+        if (reply->error() == QNetworkReply::NoError) {
+            QByteArray responseData = reply->readAll();
+            QJsonDocument responseDoc = QJsonDocument::fromJson(responseData);
+            QJsonObject responseObj = responseDoc.object();
+            emit tokenValidationSuccessful();
+        } else {
+            QNetworkRequest request(url);
+            request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+            QJsonObject jsonData;
+            jsonData["token"] = refresh_token;
+            QJsonDocument doc(jsonData);
+            QByteArray postData = doc.toJson();
+            connect(reply, &QNetworkReply::finished, [=](){
+                if (reply->error() == QNetworkReply::NoError) {
+                    QByteArray responseData = reply->readAll();
+                    QJsonDocument responseDoc = QJsonDocument::fromJson(responseData);
+                    QJsonObject responseObj = responseDoc.object();
+                    QString access_token = responseObj["access_token"].toString();
+                    globalSettings->setValue("access_token", access_token);
+                    emit tokenValidationSuccessful();
+                }
+            });
+        }
+        reply->deleteLater();
+    });
+}
+
+
+
+
+QSettings* globalSettings = nullptr;
+void initGlobalSettings() {
+    // Получение пути для хранения настроек (например, в домашней директории пользователя)
+    //settingsFile = initGlobalSettings();
+
+    QString configPath = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+    QDir().mkpath(configPath); // Создаём директорию, если её нет
+
+    QString settingsFile = configPath + "/global_settings.ini";
+    qDebug() << "Используемый файл настроек:" << settingsFile;
+
+    globalSettings = new QSettings(settingsFile, QSettings::IniFormat);
+
 }
 
 void LoginForm::onRegisterClicked() {
     emit goToRegister();
 }
+
+
 
 void LoginForm::onLoginClicked() {
     QString email = usernameInput->text();
@@ -107,11 +197,14 @@ void LoginForm::onLoginClicked() {
             if (responseObj.contains("access_token") && responseObj.contains("refresh_token")) {
                 QString accessToken = responseObj["access_token"].toString();
                 QString refreshToken = responseObj["refresh_token"].toString();
+                QString uid = responseObj["uid"].toString();
 
+                initGlobalSettings();
                 // Сохранение токенов
-                QSettings settings;
-                settings.setValue("access_token", accessToken);
-                settings.setValue("refresh_token", refreshToken);
+                globalSettings->setValue("access_token", accessToken);
+                globalSettings->setValue("refresh_token", refreshToken);
+                globalSettings->setValue("uid", uid);
+                globalSettings->sync();
 
                 // Переход в меню чатов
                 QMessageBox::information(this, "Успешный вход", "Вы успешно вошли!");
@@ -145,3 +238,7 @@ void LoginForm::onLoginClicked() {
         reply->deleteLater();
     });
 }
+
+
+
+
