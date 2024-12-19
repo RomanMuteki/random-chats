@@ -5,9 +5,9 @@ import httpx
 import redis.asyncio as redis
 import json
 from typing import List, Optional
+
 import logging
 from fastapi.responses import HTMLResponse
-
 log_file = "service.log"
 
 CFG_FILE = 'config.json'
@@ -67,6 +67,7 @@ async def add_user_to_queue(uid: str, queue_key: str) -> bool:
     except Exception as e:
         logger.error(f"Ошибка добавления пользователя в очередь: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 async def request_with_retry(method: str, service_name: str, path: str, **kwargs) -> Optional[httpx.Response]:

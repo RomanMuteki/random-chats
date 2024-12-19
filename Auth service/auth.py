@@ -10,7 +10,6 @@ from pydantic import BaseModel
 from fastapi.responses import HTMLResponse
 import logging
 
-
 log_file = "service.log"
 
 CFG_FILE = 'config.json'
@@ -328,6 +327,7 @@ async def get_name(request: MatchingGetInfo, db=Depends(get_db_connection)):
     :return: Имя пользователя.
     """
     logger.info(f"Получение имени пользователя для uid: {request.uid}")
+
     try:
         query = "SELECT * FROM users2 WHERE uid = $1"
         user = await db.fetchrow(query, request.uid)
