@@ -5,8 +5,8 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
-from fastapi.middleware.cors import CORSMiddleware
 import json
+import httpx
 from models import (
     MessageCreate,
     MessageStatusUpdate,
@@ -14,10 +14,14 @@ from models import (
     Message,
     Chat,
 )
+from fastapi.responses import HTMLResponse
+
+
+log_file = "service.log"
 
 CONFIG_FILE = 'config.json'
 if not os.path.exists(CONFIG_FILE):
-    raise FileNotFoundError(f"Файл конфигурации {CONFIG_FILE} не найден.")
+    raise FileNotFoundError(f"Ф айл конфигурации {CONFIG_FILE} не найден.")
 
 with open(CONFIG_FILE, 'r') as f:
     config = json.load(f)
@@ -26,22 +30,23 @@ MONGODB_URL = config.get('mongodb_url', 'mongodb://localhost:27017')
 DATABASE_NAME = config.get('database_name', 'random_chats_db')
 SERVICE_NAME = config.get('service_name', 'Message Service')
 LOG_LEVEL = config.get('log_level', 'INFO')
+API_GATEWAY_URL = config.get('api_gateway_url', 'http://localhost:8500')
+MAX_ATTEMPTS = config.get('max_attempts', 5)
 
 client = AsyncIOMotorClient(MONGODB_URL)
 db = client[DATABASE_NAME]
 
-logging.basicConfig(level=LOG_LEVEL)
-logger = logging.getLogger(SERVICE_NAME)
-
 app = FastAPI(title=SERVICE_NAME)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Разрешает доступ с любых доменов
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+logging.basicConfig(level=LOG_LEVEL,
+                    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                    handlers=[
+                        logging.StreamHandler(),
+                        logging.FileHandler(log_file, mode='a')
+                    ])
+logger = logging.getLogger(SERVICE_NAME)
+
+http_client = httpx.AsyncClient()
 
 
 def validate_object_id(id_str: str, name: str) -> ObjectId:
@@ -49,6 +54,58 @@ def validate_object_id(id_str: str, name: str) -> ObjectId:
         return ObjectId(id_str)
     except Exception:
         raise HTTPException(status_code=422, detail=f"Invalid {name}: {id_str}")
+
+
+async def request_with_retry(method: str, service_name: str, path: str, **kwargs) -> Optional[httpx.Response]:
+    """
+    Выполняет HTTP запрос к сервису с повторными попытками и обновлением URL из API Gateway.
+
+    :param method: HTTP метод ('GET', 'POST', 'PUT', 'DELETE').
+    :param service_name: Название сервиса.
+    :param path: Путь эндпоинта в сервисе.
+    :param kwargs: Дополнительные параметры для httpx.request.
+    :return: Ответ httpx.Response или None.
+    """
+    attempts = 0
+    while attempts < MAX_ATTEMPTS:
+        url = f"{API_GATEWAY_URL}/get_service_instance?service_name={service_name}"
+        try:
+            response = await http_client.get(url)
+            if response.status_code == 200:
+                instance = response.json().get('instance')
+                service_url = instance['url']
+                full_url = f"{service_url}{path}"
+                response = await http_client.request(method, full_url, **kwargs)
+                if response.status_code == 200:
+                    return response
+                else:
+                    logger.error(f"Ошибка при обращении к {service_name}: {response.status_code} {response.text}")
+                    attempts += 1
+            else:
+                logger.error(f"Не удалось получить экземпляр {service_name} из API Gateway: {response.text}")
+                attempts += 1
+        except Exception as e:
+            logger.error(f"Исключение при обращении к {service_name}: {e}")
+            attempts += 1
+    logger.error(f"Не удалось связаться с {service_name} после {MAX_ATTEMPTS} попыток")
+    return None
+
+
+async def get_user_name_by_id(user_id: str) -> str:
+    """
+    Получает имя пользователя по UID.
+
+    :param user_id: UID пользователя.
+    :return: Имя пользователя или "Unknown", если не удалось получить.
+    """
+    payload = {
+        "uid": user_id,
+    }
+    result = await request_with_retry("GET", "auth_service", "/get_info_by_id", json=payload)
+
+    if result and "username" in result:
+        return result["username"]
+    return "Unknown"  # Если имя не удалось получить, возвращаем "Unknown"
 
 
 @app.on_event("startup")
@@ -60,6 +117,12 @@ async def create_indexes():
     except Exception as e:
         logger.error(f"Ошибка при создании индексов: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при создании индексов")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Закрытие HTTP клиента при завершении работы приложения."""
+    await http_client.aclose()
 
 
 @app.post("/messages/", response_model=Message)
@@ -131,16 +194,29 @@ async def update_message_status(message_id: str, status_update: MessageStatusUpd
 async def create_chat(chat: ChatCreate):
     """Создает новый чат между участниками."""
     try:
+        # Проверяем, существует ли уже чат с этими участниками, только если их двое
+        if len(chat.participants) == 2:
+            existing_chat = await db["chats"].find_one({"participants": {"$all": chat.participants, "$size": 2}})
+            if existing_chat:
+                raise HTTPException(status_code=400, detail="Чат между этими участниками уже существует")
+
+        # participants_names = [await get_user_name_by_id(user_id) for user_id in chat.participants]
+
         chat_dict = chat.dict()
         chat_dict["created_at"] = datetime.utcnow()
+        # chat_dict["participants_names"] = participants_names  # Сохраняем имена участников
         # Инициализируем статус доставки для каждого участника как 'undelivered'
         chat_dict["status"] = {participant: "undelivered" for participant in chat.participants}
+
         result = await db["chats"].insert_one(chat_dict)
         chat_dict["_id"] = result.inserted_id
         return Chat(**chat_dict)
+    except HTTPException as e:
+        raise e
     except Exception as e:
         logger.error(f"Ошибка при создании чата: {e}")
         raise HTTPException(status_code=500, detail="Ошибка при создании чата")
+
 
 
 @app.get("/chats/{user_id}", response_model=List[Chat])
@@ -255,6 +331,108 @@ async def update_chat_status(chat_id: str, status_update: MessageStatusUpdate):
 
 
 @app.get("/")
-async def root():
-    """Корневой эндпоинт для проверки работоспособности сервиса."""
-    return {"message": f"{SERVICE_NAME} работает"}
+async def health():
+    """
+    Эндпоинт для проверки состояния сервиса.
+
+    :return: Сообщение о том, что сервис работает.
+    """
+    return {"status": "Message Service is work!"}
+
+
+@app.get("/logs", response_class=HTMLResponse)
+async def get_logs():
+    try:
+        with open(log_file, "r", encoding="utf-8") as f:
+            logs = f.read()
+
+        html_content = f"""
+        <html>
+            <head>
+                <style>
+                    body {{
+                        font-family: 'Arial', sans-serif;
+                        background-color: #f7f7f7;
+                        margin: 0;
+                        padding: 0;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        height: 100vh;
+                        color: #333;
+                    }}
+                    h1 {{
+                        font-size: 36px;
+                        color: #4CAF50;
+                        text-align: center;
+                        margin-bottom: 20px;
+                    }}
+                    .log-container {{
+                        width: 80%;
+                        max-width: 1000px;
+                        background-color: #ffffff;
+                        border-radius: 10px;
+                        box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
+                        padding: 20px;
+                        overflow: hidden;
+                        box-sizing: border-box;
+                    }}
+                    pre {{
+                        background-color: #1e1e1e;
+                        color: #f1f1f1;
+                        font-size: 14px;
+                        padding: 20px;
+                        border-radius: 8px;
+                        white-space: pre-wrap;
+                        word-wrap: break-word;
+                        max-height: 70vh;
+                        overflow-y: auto;
+                    }}
+                    .error {{
+                        color: #e74c3c;
+                        font-weight: bold;
+                    }}
+                    .refresh-btn {{
+                        display: block;
+                        margin: 20px auto;
+                        padding: 10px 20px;
+                        background-color: #4CAF50;
+                        color: white;
+                        border: none;
+                        border-radius: 5px;
+                        font-size: 16px;
+                        cursor: pointer;
+                    }}
+                    .refresh-btn:hover {{
+                        background-color: #45a049;
+                    }}
+                    @media (max-width: 768px) {{
+                        h1 {{
+                            font-size: 28px;
+                        }}
+                        .log-container {{
+                            width: 95%;
+                            padding: 15px;
+                        }}
+                        pre {{
+                            font-size: 13px;
+                            padding: 15px;
+                        }}
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="log-container">
+                    <h1>Message Service Logs</h1>
+                    <pre>{logs}</pre>
+                    <button class="refresh-btn" onclick="window.location.reload();">Обновить логи</button>
+                </div>
+            </body>
+        </html>
+        """
+
+        return HTMLResponse(content=html_content, status_code=200, headers={"Content-Type": "text/html; charset=utf-8"})
+    except Exception as e:
+        logger.error(f"Ошибка при чтении логов: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка при чтении логов")
+
